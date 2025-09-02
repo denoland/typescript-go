@@ -142,6 +142,13 @@ func GetCompilerOptionsWithRedirect(compilerOptions *core.CompilerOptions, redir
 	return compilerOptions
 }
 
+type ResolverInterface interface {
+	ResolveModuleName(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedModule, []string)
+	ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedTypeReferenceDirective, []string)
+	GetPackageJsonScopeIfApplicable(path string) *packagejson.InfoCacheEntry
+	GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry
+}
+
 type Resolver struct {
 	caches
 	host            ResolutionHost

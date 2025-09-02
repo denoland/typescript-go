@@ -6,7 +6,9 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/compiler"
+	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/ls"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -208,4 +210,8 @@ func (fs *compilerFS) Remove(path string) error {
 // Chtimes implements vfs.FS.
 func (fs *compilerFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
 	panic("unimplemented")
+}
+
+func (c *compilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return module.NewResolver(host, options, typingsLocation, projectName)
 }
