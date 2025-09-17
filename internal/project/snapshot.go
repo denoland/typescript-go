@@ -174,6 +174,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 		s.sessionOptions,
 		session.parseCache,
 		session.extendedConfigCache,
+		session.makeHost,
 	)
 
 	var apiError error
@@ -211,7 +212,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 			removedFiles := 0
 			fs.diskFiles.Range(func(entry *dirty.SyncMapEntry[tspath.Path, *diskFile]) bool {
 				for _, project := range projectCollection.Projects() {
-					if project.host.seenFiles.Has(entry.Key()) {
+					if project.host.SeenFiles().Has(entry.Key()) {
 						return true
 					}
 				}
@@ -257,7 +258,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 			// mutations don't happen afterwards. In the future, we might improve things by
 			// separating what it takes to build a program from what it takes to use a program,
 			// and only pass the former into NewProgram instead of retaining it indefinitely.
-			project.host.freeze(snapshotFS, newSnapshot.ConfigFileRegistry)
+			project.host.Freeze(snapshotFS, newSnapshot.ConfigFileRegistry)
 		}
 	}
 	for path, config := range newSnapshot.ConfigFileRegistry.configs {

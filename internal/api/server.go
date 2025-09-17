@@ -111,6 +111,7 @@ func NewServer(options *ServerOptions) *Server {
 			DefaultLibraryPath: options.DefaultLibraryPath,
 			PositionEncoding:   lsproto.PositionEncodingKindUTF8,
 			LoggingEnabled:     true,
+			MakeHost:           project.NewProjectHost,
 		},
 	})
 	return server

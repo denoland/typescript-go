@@ -15,7 +15,18 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs"
 )
 
+type ProjectHost interface {
+	compiler.CompilerHost
+	Builder() *projectCollectionBuilder
+	SessionOptions() *SessionOptions
+	SeenFiles() *collections.SyncSet[tspath.Path]
+	UpdateSeenFiles(*collections.SyncSet[tspath.Path])
+	Freeze(snapshotFS *snapshotFS, configFileRegistry *ConfigFileRegistry)
+	CompilerFS() *compilerFS
+}
+
 var _ compiler.CompilerHost = (*compilerHost)(nil)
+var _ ProjectHost = (*compilerHost)(nil)
 
 type compilerHost struct {
 	configFilePath   tspath.Path
@@ -47,12 +58,12 @@ func (c *builderFileSource) FS() vfs.FS {
 	return c.snapshotFSBuilder.FS()
 }
 
-func newCompilerHost(
+func NewProjectHost(
 	currentDirectory string,
 	project *Project,
 	builder *projectCollectionBuilder,
 	logger *logging.LogTree,
-) *compilerHost {
+) ProjectHost {
 	seenFiles := &collections.SyncSet[tspath.Path]{}
 	compilerFS := &compilerFS{
 		source: &builderFileSource{
@@ -214,4 +225,28 @@ func (fs *compilerFS) Chtimes(path string, atime time.Time, mtime time.Time) err
 
 func (c *compilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
 	return module.NewResolver(host, options, typingsLocation, projectName)
+}
+
+func (c *compilerHost) Builder() *projectCollectionBuilder {
+	return c.builder
+}
+
+func (c *compilerHost) SessionOptions() *SessionOptions {
+	return c.sessionOptions
+}
+
+func (c *compilerHost) SeenFiles() *collections.SyncSet[tspath.Path] {
+	return c.seenFiles
+}
+
+func (c *compilerHost) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
+	c.seenFiles = seenFiles
+}
+
+func (c *compilerHost) Freeze(snapshotFS *snapshotFS, configFileRegistry *ConfigFileRegistry) {
+	c.freeze(snapshotFS, configFileRegistry)
+}
+
+func (c *compilerHost) CompilerFS() *compilerFS {
+	return c.compilerFS
 }
