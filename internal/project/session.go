@@ -43,7 +43,7 @@ type SessionOptions struct {
 	WatchEnabled       bool
 	LoggingEnabled     bool
 	DebounceDelay      time.Duration
-	MakeHost           func(currentDirectory string, project *Project, builder *projectCollectionBuilder, logger *logging.LogTree) ProjectHost
+	MakeHost           func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
 }
 
 type SessionInit struct {
@@ -110,7 +110,7 @@ type Session struct {
 	diagnosticsRefreshCancel context.CancelFunc
 	diagnosticsRefreshMu     sync.Mutex
 
-	makeHost func(currentDirectory string, project *Project, builder *projectCollectionBuilder, logger *logging.LogTree) ProjectHost
+	makeHost func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
 }
 
 func NewSession(init *SessionInit) *Session {
@@ -140,7 +140,7 @@ func NewSession(init *SessionInit) *Session {
 		snapshotID:          atomic.Uint64{},
 		snapshot: NewSnapshot(
 			uint64(0),
-			&snapshotFS{
+			&SnapshotFS{
 				toPath: toPath,
 				fs:     init.FS,
 			},

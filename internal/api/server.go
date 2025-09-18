@@ -12,11 +12,16 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/bundled"
+	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/logging"
+	"github.com/microsoft/typescript-go/internal/tsoptions"
+	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 )
@@ -88,6 +93,81 @@ type Server struct {
 	requestId int
 }
 
+type hostWrapper struct {
+	inner project.ProjectHost
+}
+// CompilerFS implements project.ProjectHost.
+func (h *hostWrapper) CompilerFS() *project.CompilerFS {
+	return h.inner.CompilerFS()
+}
+
+// DefaultLibraryPath implements project.ProjectHost.
+func (h *hostWrapper) DefaultLibraryPath() string {
+	return h.inner.DefaultLibraryPath()
+}
+
+// FS implements project.ProjectHost.
+func (h *hostWrapper) FS() vfs.FS {
+	return h.inner.FS()
+}
+
+// Freeze implements project.ProjectHost.
+func (h *hostWrapper) Freeze(snapshotFS *project.SnapshotFS, configFileRegistry *project.ConfigFileRegistry) {
+	h.inner.Freeze(snapshotFS, configFileRegistry)
+}
+
+// GetCurrentDirectory implements project.ProjectHost.
+func (h *hostWrapper) GetCurrentDirectory() string {
+	return h.inner.GetCurrentDirectory()
+}
+
+// GetResolvedProjectReference implements project.ProjectHost.
+func (h *hostWrapper) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
+	return h.inner.GetResolvedProjectReference(fileName, path)
+}
+
+// GetSourceFile implements project.ProjectHost.
+func (h *hostWrapper) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
+	return h.inner.GetSourceFile(opts)
+}
+
+// MakeResolver implements project.ProjectHost.
+func (h *hostWrapper) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return h.inner.MakeResolver(host, options, typingsLocation, projectName)
+}
+
+// SeenFiles implements project.ProjectHost.
+func (h *hostWrapper) SeenFiles() *collections.SyncSet[tspath.Path] {
+	return h.inner.SeenFiles()
+}
+
+// Trace implements project.ProjectHost.
+func (h *hostWrapper) Trace(msg string) {
+	h.inner.Trace(msg)
+}
+
+// UpdateSeenFiles implements project.ProjectHost.
+func (h *hostWrapper) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
+	h.inner.UpdateSeenFiles(seenFiles)
+}
+
+var _ project.ProjectHost = (*hostWrapper)(nil)
+
+func (h *hostWrapper) Builder() *project.ProjectCollectionBuilder {
+	return h.inner.Builder()
+}
+
+func (h *hostWrapper) SessionOptions() *project.SessionOptions {
+	return h.inner.SessionOptions()
+}
+
+func newProjectHostWrapper(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree) project.ProjectHost {
+	inner := project.NewProjectHost(currentDirectory, proj, builder, logger)
+	return &hostWrapper{
+		inner: inner,
+	}
+}
+
 func NewServer(options *ServerOptions) *Server {
 	if options.Cwd == "" {
 		panic("Cwd is required")
@@ -111,7 +191,7 @@ func NewServer(options *ServerOptions) *Server {
 			DefaultLibraryPath: options.DefaultLibraryPath,
 			PositionEncoding:   lsproto.PositionEncodingKindUTF8,
 			LoggingEnabled:     true,
-			MakeHost:           project.NewProjectHost,
+			MakeHost:           newProjectHostWrapper,
 		},
 	})
 	return server

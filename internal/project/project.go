@@ -89,7 +89,7 @@ type Project struct {
 func NewConfiguredProject(
 	configFileName string,
 	configFilePath tspath.Path,
-	builder *projectCollectionBuilder,
+	builder *ProjectCollectionBuilder,
 	logger *logging.LogTree,
 ) *Project {
 	return NewProject(configFileName, KindConfigured, tspath.GetDirectoryPath(configFileName), builder, logger)
@@ -99,7 +99,7 @@ func NewInferredProject(
 	currentDirectory string,
 	compilerOptions *core.CompilerOptions,
 	rootFileNames []string,
-	builder *projectCollectionBuilder,
+	builder *ProjectCollectionBuilder,
 	logger *logging.LogTree,
 ) *Project {
 	p := NewProject(inferredProjectName, KindInferred, currentDirectory, builder, logger)
@@ -134,7 +134,7 @@ func NewProject(
 	configFileName string,
 	kind Kind,
 	currentDirectory string,
-	builder *projectCollectionBuilder,
+	builder *ProjectCollectionBuilder,
 	logger *logging.LogTree,
 ) *Project {
 	if logger != nil {

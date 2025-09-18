@@ -28,7 +28,7 @@ type Snapshot struct {
 	converters     *ls.Converters
 
 	// Immutable state, cloned between snapshots
-	fs                                 *snapshotFS
+	fs                                 *SnapshotFS
 	ProjectCollection                  *ProjectCollection
 	ConfigFileRegistry                 *ConfigFileRegistry
 	compilerOptionsForInferredProjects *core.CompilerOptions
@@ -40,7 +40,7 @@ type Snapshot struct {
 // NewSnapshot
 func NewSnapshot(
 	id uint64,
-	fs *snapshotFS,
+	fs *SnapshotFS,
 	sessionOptions *SessionOptions,
 	parseCache *ParseCache,
 	extendedConfigCache *extendedConfigCache,
