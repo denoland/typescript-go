@@ -105,6 +105,9 @@ func (api *API) HandleRequest(ctx context.Context, method string, payload []byte
 		return encodeJSON(core.TryMap(params.Symbols, func(symbol Handle[ast.Symbol]) (any, error) {
 			return api.GetTypeOfSymbol(ctx, params.Project, symbol)
 		}))
+	case MethodGetDiagnostics:
+		params := params.(*GetDiagnosticsParams)
+		return encodeJSON((api.GetDiagnostics(ctx, params.Project)))
 	default:
 		return nil, fmt.Errorf("unhandled API method %q", method)
 	}
@@ -260,6 +263,26 @@ func (api *API) GetSourceFile(projectId Handle[project.Project], fileName string
 	defer api.filesMu.Unlock()
 	api.files[FileHandle(sourceFile)] = sourceFile
 	return sourceFile, nil
+}
+
+func (api *API) GetDiagnostics(ctx context.Context, projectId Handle[project.Project]) ([]*ls.Diagnostic, error) {
+	projectPath, ok := api.projects[projectId]
+	if !ok {
+		return nil, errors.New("project ID not found")
+	}
+	snapshot, release := api.session.Snapshot()
+	defer release()
+	project := snapshot.ProjectCollection.GetProjectByPath(projectPath)
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	languageService := ls.NewLanguageService(project, snapshot.Converters())
+	diagnostics := languageService.GetDiagnostics(ctx)
+
+	api.symbolsMu.Lock()
+	defer api.symbolsMu.Unlock()
+	return diagnostics, nil
 }
 
 func (api *API) releaseHandle(handle string) error {

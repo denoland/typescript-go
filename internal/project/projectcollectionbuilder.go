@@ -694,7 +694,6 @@ func (b *ProjectCollectionBuilder) findOrCreateProject(
 	configFilePath tspath.Path,
 	loadKind projectLoadKind,
 	logger *logging.LogTree,
-	
 ) *dirty.SyncMapEntry[tspath.Path, *Project] {
 	if loadKind == projectLoadKindFind {
 		entry, _ := b.configuredProjects.Load(configFilePath)

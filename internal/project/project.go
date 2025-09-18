@@ -300,7 +300,7 @@ func (p *Project) CreateProgram() CreateProgramResult {
 		}
 	} else {
 		var typingsLocation string
-		if p.GetTypeAcquisition().Enable.IsTrue() {
+		if acq := p.GetTypeAcquisition(); acq != nil && acq.Enable.IsTrue() {
 			typingsLocation = p.host.SessionOptions().TypingsLocation
 		}
 		newProgram = compiler.NewProgram(

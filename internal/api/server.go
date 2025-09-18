@@ -8,6 +8,7 @@ import (
 	"io"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,6 +97,7 @@ type Server struct {
 type hostWrapper struct {
 	inner project.ProjectHost
 }
+
 // CompilerFS implements project.ProjectHost.
 func (h *hostWrapper) CompilerFS() *project.CompilerFS {
 	return h.inner.CompilerFS()
@@ -181,7 +183,8 @@ func NewServer(options *ServerOptions) *Server {
 		fs:                 bundled.WrapFS(osvfs.FS()),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
-	logger := logging.NewLogger(options.Err)
+	// logger := logging.NewLogger(options.Err)
+	logger := NoLogger{}
 	server.logger = logger
 	server.api = NewAPI(&APIInit{
 		Logger: logger,
@@ -510,7 +513,8 @@ func (s *Server) GetAccessibleEntries(path string) vfs.Entries {
 
 // ReadFile implements vfs.FS.
 func (s *Server) ReadFile(path string) (contents string, ok bool) {
-	if s.enabledCallbacks&CallbackReadFile != 0 {
+	if s.enabledCallbacks&CallbackReadFile != 0 && !strings.HasPrefix(path, "bundled://") {
+
 		data, err := s.call("readFile", path)
 		if err != nil {
 			panic(err)

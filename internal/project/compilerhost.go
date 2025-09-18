@@ -25,8 +25,10 @@ type ProjectHost interface {
 	CompilerFS() *CompilerFS
 }
 
-var _ compiler.CompilerHost = (*compilerHost)(nil)
-var _ ProjectHost = (*compilerHost)(nil)
+var (
+	_ compiler.CompilerHost = (*compilerHost)(nil)
+	_ ProjectHost           = (*compilerHost)(nil)
+)
 
 type compilerHost struct {
 	configFilePath   tspath.Path

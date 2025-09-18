@@ -47,22 +47,22 @@ func (l *LanguageService) GetTypeOfSymbol(ctx context.Context, symbol *ast.Symbo
 type DiagnosticId uint32
 
 type Diagnostic struct {
-	Id DiagnosticId
-	FileName string
-	Pos int32
-	End int32
-	Code int32
-	Category string
-	Message string
-	MessageChain []DiagnosticId
-	RelatedInformation []DiagnosticId
-	ReportsUnnecessary bool
-	ReportsDeprecated bool
-	SkippedOnNoEmit bool
+	Id                 DiagnosticId   `json:"id"`
+	FileName           string         `json:"fileName"`
+	Pos                int32          `json:"pos"`
+	End                int32          `json:"end"`
+	Code               int32          `json:"code"`
+	Category           string         `json:"category"`
+	Message            string         `json:"message"`
+	MessageChain       []DiagnosticId `json:"messageChain"`
+	RelatedInformation []DiagnosticId `json:"relatedInformation"`
+	ReportsUnnecessary bool           `json:"reportsUnnecessary"`
+	ReportsDeprecated  bool           `json:"reportsDeprecated"`
+	SkippedOnNoEmit    bool           `json:"skippedOnNoEmit"`
 }
 
 type diagnosticMaps struct {
-	diagnosticMapById map[DiagnosticId]*Diagnostic
+	diagnosticMapById    map[DiagnosticId]*Diagnostic
 	diagnosticReverseMap map[*ast.Diagnostic]DiagnosticId
 }
 
@@ -73,32 +73,32 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic) DiagnosticId 
 	id := DiagnosticId(len(d.diagnosticMapById) + 1)
 
 	diag := &Diagnostic{
-		Id: id,
-		FileName: diagnostic.File().FileName(),
-		Pos: int32(diagnostic.Loc().Pos()),
-		End: int32(diagnostic.Loc().End()),
-		Code: diagnostic.Code(),
-		Category: diagnostic.Category().Name(),
-		Message: diagnostic.Message(),
-		MessageChain: make([]DiagnosticId, 0, len(diagnostic.MessageChain())),
+		Id:                 id,
+		FileName:           diagnostic.File().FileName(),
+		Pos:                int32(diagnostic.Loc().Pos()),
+		End:                int32(diagnostic.Loc().End()),
+		Code:               diagnostic.Code(),
+		Category:           diagnostic.Category().Name(),
+		Message:            diagnostic.Message(),
+		MessageChain:       make([]DiagnosticId, 0, len(diagnostic.MessageChain())),
 		RelatedInformation: make([]DiagnosticId, 0, len(diagnostic.RelatedInformation())),
 	}
-	
+
 	d.diagnosticReverseMap[diagnostic] = id
-	
+
 	for _, messageChain := range diagnostic.MessageChain() {
 		diag.MessageChain = append(diag.MessageChain, d.addDiagnostic(messageChain))
 	}
-	
+
 	for _, relatedInformation := range diagnostic.RelatedInformation() {
 		diag.RelatedInformation = append(diag.RelatedInformation, d.addDiagnostic(relatedInformation))
 	}
-	
+
 	d.diagnosticMapById[id] = diag
 	return id
 }
 
-func (d *diagnosticMaps) GetDiagnostics() []*Diagnostic {
+func (d *diagnosticMaps) getDiagnostics() []*Diagnostic {
 	diagnostics := make([]*Diagnostic, 0, len(d.diagnosticMapById))
 	for _, diagnostic := range d.diagnosticMapById {
 		diagnostics = append(diagnostics, diagnostic)
@@ -113,9 +113,8 @@ func (d *diagnosticMaps) GetDiagnostics() []*Diagnostic {
 func (l *LanguageService) GetDiagnostics(ctx context.Context) []*Diagnostic {
 	program := l.GetProgram()
 	sourceFiles := program.GetSourceFiles()
-	program.CheckSourceFiles(ctx, sourceFiles)
 	diagnosticMaps := &diagnosticMaps{
-		diagnosticMapById: make(map[DiagnosticId]*Diagnostic),
+		diagnosticMapById:    make(map[DiagnosticId]*Diagnostic),
 		diagnosticReverseMap: make(map[*ast.Diagnostic]DiagnosticId),
 	}
 	for _, sourceFile := range sourceFiles {
@@ -126,5 +125,5 @@ func (l *LanguageService) GetDiagnostics(ctx context.Context) []*Diagnostic {
 			diagnosticMaps.addDiagnostic(diagnostic)
 		}
 	}
-	return diagnosticMaps.GetDiagnostics()
+	return diagnosticMaps.getDiagnostics()
 }
