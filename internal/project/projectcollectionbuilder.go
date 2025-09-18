@@ -786,7 +786,7 @@ func (b *ProjectCollectionBuilder) updateProgram(entry dirty.Value[*Project], lo
 		if updateProgram {
 			entry.Change(func(project *Project) {
 				oldHost := project.host
-				project.host = NewProjectHost(project.currentDirectory, project, b, logger.Fork("CompilerHost"))
+				project.host = b.sessionOptions.MakeHost(project.currentDirectory, project, b, logger.Fork("CompilerHost"))
 				result := project.CreateProgram()
 				project.Program = result.Program
 				project.checkerPool = result.CheckerPool
