@@ -19,6 +19,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
 	"github.com/microsoft/typescript-go/internal/module"
+	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
@@ -64,6 +65,10 @@ const (
 	CallbackGetAccessibleEntries
 	CallbackReadFile
 	CallbackRealpath
+	CallbackResolveModuleName
+	CallbackResolveTypeReferenceDirective
+	CallbackGetPackageJsonScopeIfApplicable
+	CallbackGetPackageScopeForPath
 )
 
 type ServerOptions struct {
@@ -95,7 +100,8 @@ type Server struct {
 }
 
 type hostWrapper struct {
-	inner project.ProjectHost
+	inner  project.ProjectHost
+	server *Server
 }
 
 // CompilerFS implements project.ProjectHost.
@@ -135,7 +141,7 @@ func (h *hostWrapper) GetSourceFile(opts ast.SourceFileParseOptions) *ast.Source
 
 // MakeResolver implements project.ProjectHost.
 func (h *hostWrapper) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
-	return h.inner.MakeResolver(host, options, typingsLocation, projectName)
+	return newResolverWrapper(h.inner.MakeResolver(host, options, typingsLocation, projectName), h.server)
 }
 
 // SeenFiles implements project.ProjectHost.
@@ -163,12 +169,109 @@ func (h *hostWrapper) SessionOptions() *project.SessionOptions {
 	return h.inner.SessionOptions()
 }
 
-func newProjectHostWrapper(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree) project.ProjectHost {
+func newProjectHostWrapper(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree, server *Server) *hostWrapper {
 	inner := project.NewProjectHost(currentDirectory, proj, builder, logger)
 	return &hostWrapper{
-		inner: inner,
+		inner:  inner,
+		server: server,
 	}
 }
+
+type resolverWrapper struct {
+	inner  module.ResolverInterface
+	server *Server
+}
+
+func newResolverWrapper(inner module.ResolverInterface, server *Server) *resolverWrapper {
+	return &resolverWrapper{
+		inner:  inner,
+		server: server,
+	}
+}
+
+// GetPackageJsonScopeIfApplicable implements module.ResolverInterface.
+func (r *resolverWrapper) GetPackageJsonScopeIfApplicable(path string) *packagejson.InfoCacheEntry {
+	if r.server.CallbackEnabled(CallbackGetPackageJsonScopeIfApplicable) {
+		result, err := r.server.call("getPackageJsonScopeIfApplicable", path)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res packagejson.InfoCacheEntry
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res
+		}
+	}
+	return r.inner.GetPackageJsonScopeIfApplicable(path)
+}
+
+// GetPackageScopeForPath implements module.ResolverInterface.
+func (r *resolverWrapper) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
+	if r.server.CallbackEnabled(CallbackGetPackageScopeForPath) {
+		result, err := r.server.call("getPackageScopeForPath", directory)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res packagejson.InfoCacheEntry
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res
+		}
+	}
+	return r.inner.GetPackageScopeForPath(directory)
+}
+
+// ResolveModuleName implements module.ResolverInterface.
+func (r *resolverWrapper) ResolveModuleName(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []string) {
+	if r.server.CallbackEnabled(CallbackResolveModuleName) {
+		result, err := r.server.call("resolveModuleName", map[string]any{
+			"moduleName": moduleName,
+			"containingFile": containingFile,
+			"resolutionMode": resolutionMode,
+			"redirectedReference": redirectedReference,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res module.ResolvedModule
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res, nil
+		}
+	}
+	return r.inner.ResolveModuleName(moduleName, containingFile, resolutionMode, redirectedReference)
+}
+
+// ResolveTypeReferenceDirective implements module.ResolverInterface.
+func (r *resolverWrapper) ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []string) {
+	if r.server.CallbackEnabled(CallbackResolveTypeReferenceDirective) {
+		result, err := r.server.call("resolveTypeReferenceDirective", map[string]any{
+			"typeReferenceDirectiveName": typeReferenceDirectiveName,
+			"containingFile": containingFile,
+			"resolutionMode": resolutionMode,
+			"redirectedReference": redirectedReference,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res module.ResolvedTypeReferenceDirective
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res, nil
+		}
+	}
+	return r.inner.ResolveTypeReferenceDirective(typeReferenceDirectiveName, containingFile, resolutionMode, redirectedReference)
+}
+
+var _ module.ResolverInterface = (*resolverWrapper)(nil)
 
 func NewServer(options *ServerOptions) *Server {
 	if options.Cwd == "" {
@@ -194,7 +297,9 @@ func NewServer(options *ServerOptions) *Server {
 			DefaultLibraryPath: options.DefaultLibraryPath,
 			PositionEncoding:   lsproto.PositionEncodingKindUTF8,
 			LoggingEnabled:     true,
-			MakeHost:           newProjectHostWrapper,
+			MakeHost: func(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree) project.ProjectHost {
+				return newProjectHostWrapper(currentDirectory, proj, builder, logger, server)
+			},
 		},
 	})
 	return server
@@ -338,6 +443,14 @@ func (s *Server) enableCallback(callback string) error {
 		s.enabledCallbacks |= CallbackReadFile
 	case "realpath":
 		s.enabledCallbacks |= CallbackRealpath
+	case "resolveModuleName":
+		s.enabledCallbacks |= CallbackResolveModuleName
+	case "resolveTypeReferenceDirective":
+		s.enabledCallbacks |= CallbackResolveTypeReferenceDirective
+	case "getPackageJsonScopeIfApplicable":
+		s.enabledCallbacks |= CallbackGetPackageJsonScopeIfApplicable
+	case "getPackageScopeForPath":
+		s.enabledCallbacks |= CallbackGetPackageScopeForPath
 	default:
 		return fmt.Errorf("unknown callback: %s", callback)
 	}
@@ -579,4 +692,8 @@ func (s *Server) Remove(path string) error {
 // Chtimes implements vfs.FS.
 func (s *Server) Chtimes(path string, aTime time.Time, mTime time.Time) error {
 	panic("unimplemented")
+}
+
+func (s *Server) CallbackEnabled(callback Callback) bool {
+	return s.enabledCallbacks&callback != 0
 }

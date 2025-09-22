@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/astnav"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/compiler"
 )
 
 var (
@@ -117,13 +118,14 @@ func (l *LanguageService) GetDiagnostics(ctx context.Context) []*Diagnostic {
 		diagnosticMapById:    make(map[DiagnosticId]*Diagnostic),
 		diagnosticReverseMap: make(map[*ast.Diagnostic]DiagnosticId),
 	}
+	diagnostics := make([]*ast.Diagnostic, 0, len(sourceFiles))
 	for _, sourceFile := range sourceFiles {
-		for _, diagnostic := range program.GetSyntacticDiagnostics(ctx, sourceFile) {
-			diagnosticMaps.addDiagnostic(diagnostic)
-		}
-		for _, diagnostic := range program.GetSemanticDiagnostics(ctx, sourceFile) {
-			diagnosticMaps.addDiagnostic(diagnostic)
-		}
+		diagnostics = append(diagnostics, program.GetSyntacticDiagnostics(ctx, sourceFile)...)
+		diagnostics = append(diagnostics, program.GetSemanticDiagnostics(ctx, sourceFile)...)
+	}
+	diagnostics = compiler.SortAndDeduplicateDiagnostics(diagnostics)
+	for _, diagnostic := range diagnostics {
+		diagnosticMaps.addDiagnostic(diagnostic)
 	}
 	return diagnosticMaps.getDiagnostics()
 }
