@@ -189,6 +189,12 @@ func newResolverWrapper(inner module.ResolverInterface, server *Server) *resolve
 	}
 }
 
+type PackageJsonIfApplicable struct {
+	PackageDirectory string
+	DirectoryExists  bool
+	Contents         string
+}
+
 // GetPackageJsonScopeIfApplicable implements module.ResolverInterface.
 func (r *resolverWrapper) GetPackageJsonScopeIfApplicable(path string) *packagejson.InfoCacheEntry {
 	if r.server.CallbackEnabled(CallbackGetPackageJsonScopeIfApplicable) {
@@ -197,11 +203,23 @@ func (r *resolverWrapper) GetPackageJsonScopeIfApplicable(path string) *packagej
 			panic(err)
 		}
 		if len(result) > 0 {
-			var res packagejson.InfoCacheEntry
+			var res PackageJsonIfApplicable
 			if err := json.Unmarshal(result, &res); err != nil {
 				panic(err)
 			}
-			return &res
+			contents, err := packagejson.Parse([]byte(res.Contents))
+			if err != nil {
+				panic(err)
+			}
+			return &packagejson.InfoCacheEntry{
+				PackageDirectory: res.PackageDirectory,
+				DirectoryExists:  res.DirectoryExists,
+				Contents:         &packagejson.PackageJson{
+					Fields: contents,
+				},
+			}
+		} else {
+			return nil
 		}
 	}
 	return r.inner.GetPackageJsonScopeIfApplicable(path)
@@ -286,8 +304,9 @@ func NewServer(options *ServerOptions) *Server {
 		fs:                 bundled.WrapFS(osvfs.FS()),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
-	// logger := logging.NewLogger(options.Err)
-	logger := NoLogger{}
+	
+	logger := logging.NewLogger(options.Err)
+	// logger := NoLogger{}
 	server.logger = logger
 	server.api = NewAPI(&APIInit{
 		Logger: logger,

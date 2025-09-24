@@ -45,13 +45,27 @@ func (l *LanguageService) GetTypeOfSymbol(ctx context.Context, symbol *ast.Symbo
 	return checker.GetTypeOfSymbolAtLocation(symbol, nil)
 }
 
+
+type Position struct {
+	Line   int64 `json:"line"`
+	Character int64 `json:"character"`
+}
+
+func getPosition(file *ast.SourceFile, position int, ls *LanguageService) Position {
+	pos := ls.createLspPosition(position, file)
+	return Position{
+		Line:   int64(pos.Line),
+		Character: int64(pos.Character),
+	}
+}
+
 type DiagnosticId uint32
 
 type Diagnostic struct {
 	Id                 DiagnosticId   `json:"id"`
 	FileName           string         `json:"fileName"`
-	Pos                int32          `json:"pos"`
-	End                int32          `json:"end"`
+	Start              Position       `json:"start"`
+	End                Position       `json:"end"`
 	Code               int32          `json:"code"`
 	Category           string         `json:"category"`
 	Message            string         `json:"message"`
@@ -67,7 +81,7 @@ type diagnosticMaps struct {
 	diagnosticReverseMap map[*ast.Diagnostic]DiagnosticId
 }
 
-func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic) DiagnosticId {
+func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageService) DiagnosticId {
 	if i, ok := d.diagnosticReverseMap[diagnostic]; ok {
 		return i
 	}
@@ -76,8 +90,8 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic) DiagnosticId 
 	diag := &Diagnostic{
 		Id:                 id,
 		FileName:           diagnostic.File().FileName(),
-		Pos:                int32(diagnostic.Loc().Pos()),
-		End:                int32(diagnostic.Loc().End()),
+		Start:              getPosition(diagnostic.File(), diagnostic.Loc().Pos(), ls),
+		End:                getPosition(diagnostic.File(), diagnostic.Loc().End(), ls),
 		Code:               diagnostic.Code(),
 		Category:           diagnostic.Category().Name(),
 		Message:            diagnostic.Message(),
@@ -88,11 +102,11 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic) DiagnosticId 
 	d.diagnosticReverseMap[diagnostic] = id
 
 	for _, messageChain := range diagnostic.MessageChain() {
-		diag.MessageChain = append(diag.MessageChain, d.addDiagnostic(messageChain))
+		diag.MessageChain = append(diag.MessageChain, d.addDiagnostic(messageChain, ls))
 	}
 
 	for _, relatedInformation := range diagnostic.RelatedInformation() {
-		diag.RelatedInformation = append(diag.RelatedInformation, d.addDiagnostic(relatedInformation))
+		diag.RelatedInformation = append(diag.RelatedInformation, d.addDiagnostic(relatedInformation, ls))
 	}
 
 	d.diagnosticMapById[id] = diag
@@ -125,7 +139,7 @@ func (l *LanguageService) GetDiagnostics(ctx context.Context) []*Diagnostic {
 	}
 	diagnostics = compiler.SortAndDeduplicateDiagnostics(diagnostics)
 	for _, diagnostic := range diagnostics {
-		diagnosticMaps.addDiagnostic(diagnostic)
+		diagnosticMaps.addDiagnostic(diagnostic, l)
 	}
 	return diagnosticMaps.getDiagnostics()
 }

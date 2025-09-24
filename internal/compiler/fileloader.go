@@ -607,12 +607,20 @@ func (p *fileLoader) createSyntheticImport(text string, file *ast.SourceFile) *a
 	return externalHelpersModuleReference
 }
 
+func isDenoLibFile(name string) bool {
+	return strings.HasPrefix(name, "lib.deno")
+}
+
 func (p *fileLoader) pathForLibFile(name string) *LibFile {
 	if cached, ok := p.pathForLibFileCache.Load(name); ok {
 		return cached
 	}
 
 	path := tspath.CombinePaths(p.defaultLibraryPath, name)
+	if isDenoLibFile(name) {
+		libFileName, _ := tsoptions.GetLibFileName(name)
+		path = tspath.CombinePaths("asset:///", libFileName)
+	}
 	replaced := false
 	if p.opts.Config.CompilerOptions().LibReplacement.IsTrue() && name != "lib.d.ts" {
 		libraryName := getLibraryNameFromLibFileName(name)
