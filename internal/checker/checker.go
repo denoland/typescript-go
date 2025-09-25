@@ -1324,6 +1324,7 @@ func (c *Checker) initializeChecker() {
 	}
 }
 
+
 func (c *Checker) mergeModuleAugmentation(moduleName *ast.Node) {
 	moduleNode := moduleName.Parent
 	moduleAugmentation := moduleNode.AsModuleDeclaration()
@@ -13454,6 +13455,25 @@ func (c *Checker) combineSymbolTables(first ast.SymbolTable, second ast.SymbolTa
 	c.mergeSymbolTable(combined, second, false, nil)
 	return combined
 }
+
+
+// func (c *Checker) mergeGlobalSymbolTable(node *ast.Node, source ast.SymbolTable, unidirectional bool, mergedParent *ast.Symbol) {
+// 	// sourceFile := ast.GetSourceFileOfNode(node)
+// 	// // isNodeFile := c.program.IsNodeSourceFile(sourceFile.Path())
+// 	// for id, sourceSymbol := range source {
+// 	// 	target := c.globals
+// 	// 	targetSymbol := target[id]
+// 	// 	// var merged *ast.Symbol
+// 	// 	if targetSymbol != nil {
+// 	// 		merged = c.mergeSymbol(targetSymbol, sourceSymbol, unidirectional)
+// 	// 	} else {
+// 	// 		merged = c.getMergedSymbol(sourceSymbol)
+// 	// 	}
+// 	// }
+
+
+	
+// }
 
 func (c *Checker) mergeSymbolTable(target ast.SymbolTable, source ast.SymbolTable, unidirectional bool, mergedParent *ast.Symbol) {
 	for id, sourceSymbol := range source {
