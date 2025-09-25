@@ -43,6 +43,11 @@ func (h *host) MakeResolver(host module.ResolutionHost, options *core.CompilerOp
 	return h.host.MakeResolver(host, options, typingsLocation, projectName)
 }
 
+// IsNodeSourceFile implements compiler.CompilerHost.
+func (h *host) IsNodeSourceFile(path tspath.Path) bool {
+	return h.host.IsNodeSourceFile(path)
+}
+
 func (h *host) DefaultLibraryPath() string {
 	return h.host.DefaultLibraryPath()
 }

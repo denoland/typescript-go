@@ -171,6 +171,11 @@ func (h *hostWrapper) SessionOptions() *project.SessionOptions {
 	return h.inner.SessionOptions()
 }
 
+// IsNodeSourceFile implements project.ProjectHost.
+func (h *hostWrapper) IsNodeSourceFile(path tspath.Path) bool {
+	return h.inner.IsNodeSourceFile(path)
+}
+
 func newProjectHostWrapper(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree, server *Server) *hostWrapper {
 	inner := project.NewProjectHost(currentDirectory, proj, builder, logger)
 	return &hostWrapper{

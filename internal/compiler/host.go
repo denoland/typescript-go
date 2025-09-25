@@ -19,6 +19,7 @@ type CompilerHost interface {
 	GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile
 	GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine
 	MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface
+	IsNodeSourceFile(path tspath.Path) bool
 }
 
 var _ CompilerHost = (*compilerHost)(nil)
@@ -74,6 +75,10 @@ func (h *compilerHost) GetCurrentDirectory() string {
 
 func (h *compilerHost) Trace(msg string) {
 	h.trace(msg)
+}
+
+func (h *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return false
 }
 
 func (h *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {

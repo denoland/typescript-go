@@ -45,6 +45,11 @@ type compilerHost struct {
 	logger  *logging.LogTree
 }
 
+// IsNodeSourceFile implements compiler.CompilerHost.
+func (c *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return false
+}
+
 type builderFileSource struct {
 	seenFiles         *collections.SyncSet[tspath.Path]
 	snapshotFSBuilder *snapshotFSBuilder

@@ -547,6 +547,8 @@ type Program interface {
 
 type Host interface {
 	modulespecifiers.ModuleSpecifierGenerationHost
+	
+	IsNodeSourceFile(path tspath.Path) bool
 }
 
 // Checker

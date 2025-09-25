@@ -29,6 +29,10 @@ func (h *compilerHost) GetCurrentDirectory() string {
 	return h.host.GetCurrentDirectory()
 }
 
+func (h *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return h.host.IsNodeSourceFile(path)
+}
+
 func (h *compilerHost) Trace(msg string) {
 	h.trace(msg)
 }
