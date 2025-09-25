@@ -69,6 +69,7 @@ const (
 	CallbackResolveTypeReferenceDirective
 	CallbackGetPackageJsonScopeIfApplicable
 	CallbackGetPackageScopeForPath
+	CallbackGetImpliedNodeFormatForFile
 )
 
 type ServerOptions struct {
@@ -290,6 +291,26 @@ func (r *resolverWrapper) ResolveTypeReferenceDirective(typeReferenceDirectiveNa
 	return r.inner.ResolveTypeReferenceDirective(typeReferenceDirectiveName, containingFile, resolutionMode, redirectedReference)
 }
 
+func (r *resolverWrapper) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	if r.server.CallbackEnabled(CallbackGetImpliedNodeFormatForFile) {
+		result, err := r.server.call("getImpliedNodeFormatForFile", map[string]any{
+			"fileName": path,
+			"packageJsonType": packageJsonType,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res core.ModuleKind
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return res
+		}
+	}
+	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
+}
+
 var _ module.ResolverInterface = (*resolverWrapper)(nil)
 
 func NewServer(options *ServerOptions) *Server {
@@ -475,6 +496,8 @@ func (s *Server) enableCallback(callback string) error {
 		s.enabledCallbacks |= CallbackGetPackageJsonScopeIfApplicable
 	case "getPackageScopeForPath":
 		s.enabledCallbacks |= CallbackGetPackageScopeForPath
+	case "getImpliedNodeFormatForFile":
+		s.enabledCallbacks |= CallbackGetImpliedNodeFormatForFile
 	default:
 		return fmt.Errorf("unknown callback: %s", callback)
 	}

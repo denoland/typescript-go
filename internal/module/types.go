@@ -86,11 +86,11 @@ func (r *ResolvedModule) GetLookupLocations() *LookupLocations {
 
 type ResolvedTypeReferenceDirective struct {
 	LookupLocations
-	Primary                 bool
-	ResolvedFileName        string
-	OriginalPath            string
-	PackageId               PackageId
-	IsExternalLibraryImport bool
+	Primary                 bool `json:"primary"`
+	ResolvedFileName        string `json:"resolvedFileName"`
+	OriginalPath            string `json:"originalPath"`
+	PackageId               PackageId `json:"packageId"`
+	IsExternalLibraryImport bool `json:"isExternalLibraryImport"`
 }
 
 func (r *ResolvedTypeReferenceDirective) IsResolved() bool {

@@ -147,6 +147,7 @@ type ResolverInterface interface {
 	ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedTypeReferenceDirective, []string)
 	GetPackageJsonScopeIfApplicable(path string) *packagejson.InfoCacheEntry
 	GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry
+	GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind
 }
 
 type Resolver struct {
@@ -157,6 +158,8 @@ type Resolver struct {
 	projectName     string
 	// reportDiagnostic: DiagnosticReporter
 }
+
+var _ ResolverInterface = (*Resolver)(nil)
 
 func NewResolver(
 	host ResolutionHost,
@@ -272,6 +275,10 @@ func (r *Resolver) ResolveModuleName(moduleName string, containingFile string, r
 	}
 
 	return r.tryResolveFromTypingsLocation(moduleName, containingDirectory, result, traceBuilder), traceBuilder.getTraces()
+}
+
+func (r *Resolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	return ast.GetImpliedNodeFormatForFile(path, packageJsonType)
 }
 
 func (r *Resolver) tryResolveFromTypingsLocation(moduleName string, containingDirectory string, originalResult *ResolvedModule, traceBuilder *tracer) *ResolvedModule {

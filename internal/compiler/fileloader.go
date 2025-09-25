@@ -408,7 +408,7 @@ func (p *fileLoader) loadSourceFileMetaData(fileName string) ast.SourceFileMetaD
 			packageJsonType = value
 		}
 	}
-	impliedNodeFormat := ast.GetImpliedNodeFormatForFile(fileName, packageJsonType)
+	impliedNodeFormat := p.resolver.GetImpliedNodeFormatForFile(fileName, packageJsonType)
 	return ast.SourceFileMetaData{
 		PackageJsonType:      packageJsonType,
 		PackageJsonDirectory: packageJsonDirectory,
