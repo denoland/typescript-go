@@ -66,6 +66,8 @@ type Diagnostic struct {
 	FileName           string         `json:"fileName"`
 	Start              Position       `json:"start"`
 	End                Position       `json:"end"`
+	StartPos           int       `json:"startPos"`
+	EndPos             int       `json:"endPos"`
 	Code               int32          `json:"code"`
 	Category           string         `json:"category"`
 	Message            string         `json:"message"`
@@ -92,6 +94,8 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageS
 		FileName:           diagnostic.File().FileName(),
 		Start:              getPosition(diagnostic.File(), diagnostic.Loc().Pos(), ls),
 		End:                getPosition(diagnostic.File(), diagnostic.Loc().End(), ls),
+		StartPos:           diagnostic.Loc().Pos(),
+		EndPos:             diagnostic.Loc().End(),
 		Code:               diagnostic.Code(),
 		Category:           diagnostic.Category().Name(),
 		Message:            diagnostic.Message(),

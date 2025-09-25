@@ -77,6 +77,7 @@ type ServerOptions struct {
 	Err                io.Writer
 	Cwd                string
 	DefaultLibraryPath string
+	LogEnabled         bool
 }
 
 var _ vfs.FS = (*Server)(nil)
@@ -305,8 +306,12 @@ func NewServer(options *ServerOptions) *Server {
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
 	
-	logger := logging.NewLogger(options.Err)
-	// logger := NoLogger{}
+	var logger logging.Logger
+	if options.LogEnabled {
+		logger = logging.NewLogger(options.Err)
+	} else {
+		logger = NoLogger{}
+	}
 	server.logger = logger
 	server.api = NewAPI(&APIInit{
 		Logger: logger,
