@@ -10,7 +10,9 @@ type NameResolver struct {
 	CompilerOptions                  *core.CompilerOptions
 	GetSymbolOfDeclaration           func(node *ast.Node) *ast.Symbol
 	Error                            func(location *ast.Node, message *diagnostics.Message, args ...any) *ast.Diagnostic
-	Globals                          ast.SymbolTable
+	DenoGlobals                      ast.SymbolTable
+	NodeGlobals                      ast.SymbolTable
+	DenoContext                      *ast.DenoForkContext
 	ArgumentsSymbol                  *ast.Symbol
 	RequireSymbol                    *ast.Symbol
 	GetModuleSymbol                  func(sourceFile *ast.Node) *ast.Symbol
@@ -318,7 +320,11 @@ loop:
 			return r.GetModuleSymbol(lastLocation)
 		}
 		if !excludeGlobals {
-			result = r.lookup(r.Globals, name, meaning|ast.SymbolFlagsGlobalLookup)
+			if r.DenoContext.HasNodeSourceFile(lastLocation) {
+				result = r.lookup(r.NodeGlobals, name, meaning|ast.SymbolFlagsGlobalLookup)
+			} else {
+				result = r.lookup(r.DenoGlobals, name, meaning|ast.SymbolFlagsGlobalLookup)
+			}
 		}
 	}
 	if result == nil {

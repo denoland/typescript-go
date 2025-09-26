@@ -20,7 +20,7 @@ func runAPI(args []string) int {
 	}
 
 	defaultLibraryPath := bundled.LibPath()
-	
+
 	logEnabled := os.Getenv("TSGO_LOG_ENABLED") == "1"
 
 	s := api.NewServer(&api.ServerOptions{

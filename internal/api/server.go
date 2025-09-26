@@ -210,9 +210,12 @@ func (r *resolverWrapper) GetPackageJsonScopeIfApplicable(path string) *packagej
 			panic(err)
 		}
 		if len(result) > 0 {
-			var res PackageJsonIfApplicable
+			var res *PackageJsonIfApplicable
 			if err := json.Unmarshal(result, &res); err != nil {
 				panic(err)
+			}
+			if res == nil {
+				return nil
 			}
 			contents, err := packagejson.Parse([]byte(res.Contents))
 			if err != nil {
@@ -221,7 +224,7 @@ func (r *resolverWrapper) GetPackageJsonScopeIfApplicable(path string) *packagej
 			return &packagejson.InfoCacheEntry{
 				PackageDirectory: res.PackageDirectory,
 				DirectoryExists:  res.DirectoryExists,
-				Contents:         &packagejson.PackageJson{
+				Contents: &packagejson.PackageJson{
 					Fields: contents,
 				},
 			}
@@ -254,9 +257,9 @@ func (r *resolverWrapper) GetPackageScopeForPath(directory string) *packagejson.
 func (r *resolverWrapper) ResolveModuleName(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []string) {
 	if r.server.CallbackEnabled(CallbackResolveModuleName) {
 		result, err := r.server.call("resolveModuleName", map[string]any{
-			"moduleName": moduleName,
-			"containingFile": containingFile,
-			"resolutionMode": resolutionMode,
+			"moduleName":          moduleName,
+			"containingFile":      containingFile,
+			"resolutionMode":      resolutionMode,
 			"redirectedReference": redirectedReference,
 		})
 		if err != nil {
@@ -278,9 +281,9 @@ func (r *resolverWrapper) ResolveTypeReferenceDirective(typeReferenceDirectiveNa
 	if r.server.CallbackEnabled(CallbackResolveTypeReferenceDirective) {
 		result, err := r.server.call("resolveTypeReferenceDirective", map[string]any{
 			"typeReferenceDirectiveName": typeReferenceDirectiveName,
-			"containingFile": containingFile,
-			"resolutionMode": resolutionMode,
-			"redirectedReference": redirectedReference,
+			"containingFile":             containingFile,
+			"resolutionMode":             resolutionMode,
+			"redirectedReference":        redirectedReference,
 		})
 		if err != nil {
 			panic(err)
@@ -299,7 +302,7 @@ func (r *resolverWrapper) ResolveTypeReferenceDirective(typeReferenceDirectiveNa
 func (r *resolverWrapper) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
 	if r.server.CallbackEnabled(CallbackGetImpliedNodeFormatForFile) {
 		result, err := r.server.call("getImpliedNodeFormatForFile", map[string]any{
-			"fileName": path,
+			"fileName":        path,
 			"packageJsonType": packageJsonType,
 		})
 		if err != nil {
@@ -331,7 +334,7 @@ func NewServer(options *ServerOptions) *Server {
 		fs:                 bundled.WrapFS(osvfs.FS()),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
-	
+
 	var logger logging.Logger
 	if options.LogEnabled {
 		logger = logging.NewLogger(options.Err)

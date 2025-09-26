@@ -134,6 +134,10 @@ func (b *Binder) newSymbol(flags ast.SymbolFlags, name string) *ast.Symbol {
 	result := b.symbolPool.New()
 	result.Flags = flags
 	result.Name = name
+	result.Members = ast.NewSymbolTable()
+	result.Exports = ast.NewSymbolTable()
+	result.GlobalExports = ast.NewSymbolTable()
+
 	return result
 }
 
@@ -1220,28 +1224,37 @@ func (b *Binder) lookupEntity(node *ast.Node, container *ast.Node) *ast.Symbol {
 	if ast.IsPropertyAccessExpression(node) && node.AsPropertyAccessExpression().Expression.Kind == ast.KindThisKeyword ||
 		ast.IsElementAccessExpression(node) && node.AsElementAccessExpression().Expression.Kind == ast.KindThisKeyword {
 		if _, symbolTable := b.getThisClassAndSymbolTable(); symbolTable != nil {
-		if name := ast.GetElementOrPropertyAccessName(node); name != nil {
-			return symbolTable.Get(name.Text())
-		}
+			if name := ast.GetElementOrPropertyAccessName(node); name != nil {
+				return symbolTable.Get(name.Text())
+			}
 		}
 		return nil
 	}
 	if symbol := getInitializerSymbol(b.lookupEntity(node.Expression(), container)); symbol != nil && symbol.Exports != nil {
-	if name := ast.GetElementOrPropertyAccessName(node); name != nil {
-		return symbol.Exports.Get(name.Text())
-	}
+		if name := ast.GetElementOrPropertyAccessName(node); name != nil {
+			return symbol.Exports.Get(name.Text())
+		}
 	}
 	return nil
 }
 
 func (b *Binder) lookupName(name string, container *ast.Node) *ast.Symbol {
+	if container == nil {
+		panic("container is nil in lookupName: " + name)
+	}
 	if localsContainer := container.LocalsContainerData(); localsContainer != nil {
+		if localsContainer.Locals == nil {
+			localsContainer.Locals = ast.NewSymbolTable()
+		}
 		if local := localsContainer.Locals.Get(name); local != nil {
 			return core.OrElse(local.ExportSymbol, local)
 		}
 	}
 
 	if declaration := container.DeclarationData(); declaration != nil && declaration.Symbol != nil {
+		if declaration.Symbol.Exports == nil {
+			declaration.Symbol.Exports = ast.NewSymbolTable()
+		}
 		return declaration.Symbol.Exports.Get(name)
 	}
 	return nil

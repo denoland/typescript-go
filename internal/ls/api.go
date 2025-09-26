@@ -45,16 +45,15 @@ func (l *LanguageService) GetTypeOfSymbol(ctx context.Context, symbol *ast.Symbo
 	return checker.GetTypeOfSymbolAtLocation(symbol, nil)
 }
 
-
 type Position struct {
-	Line   int64 `json:"line"`
+	Line      int64 `json:"line"`
 	Character int64 `json:"character"`
 }
 
 func getPosition(file *ast.SourceFile, position int, ls *LanguageService) Position {
 	pos := ls.createLspPosition(position, file)
 	return Position{
-		Line:   int64(pos.Line),
+		Line:      int64(pos.Line),
 		Character: int64(pos.Character),
 	}
 }
@@ -66,8 +65,8 @@ type Diagnostic struct {
 	FileName           string         `json:"fileName"`
 	Start              Position       `json:"start"`
 	End                Position       `json:"end"`
-	StartPos           int       `json:"startPos"`
-	EndPos             int       `json:"endPos"`
+	StartPos           int            `json:"startPos"`
+	EndPos             int            `json:"endPos"`
 	Code               int32          `json:"code"`
 	Category           string         `json:"category"`
 	Message            string         `json:"message"`

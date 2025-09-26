@@ -113,7 +113,7 @@ var LibMap = collections.NewOrderedMapFromList([]collections.MapEntry[string, an
 	{Key: "deno.window", Value: "lib.deno.window.d.ts"},
 	{Key: "deno.worker", Value: "lib.deno.worker.d.ts"},
 	{Key: "deno.ns", Value: "lib.deno.ns.d.ts"},
-	
+
 	{Key: "deno.console", Value: "lib.deno.console.d.ts"},
 	{Key: "deno.url", Value: "lib.deno.url.d.ts"},
 	{Key: "deno.web", Value: "lib.deno.web.d.ts"},

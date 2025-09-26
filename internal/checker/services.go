@@ -104,7 +104,10 @@ func (c *Checker) getSymbolsInScope(location *ast.Node, meaning ast.SymbolFlags)
 			location = location.Parent
 		}
 
-		copySymbols(c.globals, meaning)
+		if c.denoForkContext.HasNodeSourceFile(location) {
+			copySymbols(c.nodeGlobals, meaning)
+		}
+		copySymbols(c.denoGlobals, meaning)
 	}
 
 	populateSymbols()
@@ -836,4 +839,3 @@ func isArrayLiteralOrObjectLiteralDestructuringPattern(node *ast.Node) bool {
 	// [x, [a, b, c] ] = someExpression
 	return isArrayLiteralOrObjectLiteralDestructuringPattern(parent)
 }
-

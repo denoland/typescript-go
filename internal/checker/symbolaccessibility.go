@@ -507,8 +507,11 @@ func (ch *Checker) trySymbolTable(
 	}
 
 	// If there's no result and we're looking at the global symbol table, treat `globalThis` like an alias and try to lookup thru that
-	if reflect.ValueOf(ch.globals).UnsafePointer() == reflect.ValueOf(symbols).UnsafePointer() {
-		return ch.getCandidateListForSymbol(ctx, ch.globalThisSymbol, ch.globalThisSymbol, ignoreQualification)
+	if reflect.ValueOf(ch.denoGlobals).UnsafePointer() == reflect.ValueOf(symbols).UnsafePointer() {
+		return ch.getCandidateListForSymbol(ctx, ch.denoGlobalThisSymbol, ch.denoGlobalThisSymbol, ignoreQualification)
+	}
+	if reflect.ValueOf(ch.nodeGlobals).UnsafePointer() == reflect.ValueOf(symbols).UnsafePointer() {
+		return ch.getCandidateListForSymbol(ctx, ch.nodeGlobalThisSymbol, ch.nodeGlobalThisSymbol, ignoreQualification)
 	}
 	return nil
 }
@@ -708,7 +711,7 @@ func (ch *Checker) someSymbolTableInScope(
 		}
 	}
 
-	return callback(ch.globals, false, true, nil)
+	return callback(ch.denoGlobals, false, true, nil)
 }
 
 /**

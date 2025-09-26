@@ -101,7 +101,7 @@ var unmarshalers = map[Method]func([]byte) (any, error){
 	MethodGetSymbolsAtLocations: unmarshallerFor[GetSymbolsAtLocationsParams],
 	MethodGetTypeOfSymbol:       unmarshallerFor[GetTypeOfSymbolParams],
 	MethodGetTypesOfSymbols:     unmarshallerFor[GetTypesOfSymbolsParams],
-	MethodGetDiagnostics: unmarshallerFor[GetDiagnosticsParams],
+	MethodGetDiagnostics:        unmarshallerFor[GetDiagnosticsParams],
 }
 
 type ConfigureParams struct {
