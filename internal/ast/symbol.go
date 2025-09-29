@@ -1,8 +1,10 @@
 package ast
 
 import (
+	"fmt"
 	"iter"
 	"maps"
+	"os"
 	"strings"
 	"sync/atomic"
 
@@ -394,6 +396,7 @@ func (c *DenoForkContext) GetGlobalsForName(name string) SymbolTable {
 }
 
 func isTypesNodePkgPath(path tspath.Path) bool {
+	fmt.Fprintf(os.Stderr, "isTypesNodePkgPath %s\n", path)
 	return strings.HasSuffix(string(path), ".d.ts") && strings.Contains(string(path), "/@types/node/")
 }
 
@@ -411,6 +414,14 @@ func symbolHasAnyTypesNodePkgDecl(symbol *Symbol, hasNodeSourceFile func(*Node) 
 }
 
 func (c *DenoForkContext) MergeGlobalSymbolTable(node *Node, source SymbolTable, unidirectional bool) {
+	name := ""
+	if node != nil {
+		decl := node.Name()
+		if decl != nil {
+			name = decl.Text()
+		}
+	}
+	fmt.Fprintf(os.Stderr, "MergeGlobalSymbolTable %s\n", name)
 	sourceFile := GetSourceFileOfNode(node)
 	isNodeFile := c.HasNodeSourceFile(node)
 	isTypesNodeSourceFile := isNodeFile && isTypesNodePkgPath(sourceFile.Path())
@@ -423,10 +434,18 @@ func (c *DenoForkContext) MergeGlobalSymbolTable(node *Node, source SymbolTable,
 			target = c.globals
 		}
 		targetSymbol := target.Get(id)
+		if isTypesNodeSourceFile {
+			fmt.Fprintf(os.Stderr, "isTypesNodeSourceFile %s\n", id)
+		}
 		if isTypesNodeSourceFile && targetSymbol != nil && TypesNodeIgnorableNames.Has(id) && !symbolHasAnyTypesNodePkgDecl(targetSymbol, c.HasNodeSourceFile) {
+			fmt.Fprintf(os.Stderr, "ignoring %s\n", id)
 			continue
 		}
-		target.Set(id, sourceSymbol)
+		sym := sourceSymbol
+		if targetSymbol != nil {
+			sym = c.mergeSymbol(targetSymbol, sourceSymbol, unidirectional)
+		}
+		target.Set(id, sym)
 	}
 }
 
