@@ -1,10 +1,8 @@
 package ast
 
 import (
-	"fmt"
 	"iter"
 	"maps"
-	"os"
 	"strings"
 	"sync/atomic"
 
@@ -199,16 +197,18 @@ func (c *CombinedSymbolTable) Each(fn func(name string, symbol *Symbol)) {
 
 // Find implements SymbolTable.
 func (c *CombinedSymbolTable) Find(predicate func(*Symbol) bool) *Symbol {
-	if c.firstTable.Find(predicate) != nil {
-		return c.firstTable.Find(predicate)
+	ret := c.firstTable.Find(predicate)
+	if ret != nil {
+		return ret
 	}
 	return c.secondTable.Find(predicate)
 }
 
 // Get implements SymbolTable.
 func (c *CombinedSymbolTable) Get(name string) *Symbol {
-	if c.firstTable.Get(name) != nil {
-		return c.firstTable.Get(name)
+	ret := c.firstTable.Get(name)
+	if ret != nil {
+		return ret
 	}
 	return c.secondTable.Get(name)
 }
@@ -225,29 +225,46 @@ func (c *CombinedSymbolTable) Get2(name string) (*Symbol, bool) {
 func (c *CombinedSymbolTable) Iter() iter.Seq2[string, *Symbol] {
 	seen := make(map[string]struct{})
 	return func(yield func(string, *Symbol) bool) {
-		c.firstTable.Iter()(func(name string, symbol *Symbol) bool {
+		for name, symbol := range c.firstTable.Iter() {
 			if _, ok := seen[name]; !ok {
 				seen[name] = struct{}{}
-				return yield(name, symbol)
+				if !yield(name, symbol) {
+					break
+				}
 			}
-			return true
-		})
-		c.secondTable.Iter()(func(name string, symbol *Symbol) bool {
+		}
+		for name, symbol := range c.secondTable.Iter() {
 			if _, ok := seen[name]; !ok {
 				seen[name] = struct{}{}
-				return yield(name, symbol)
+				if !yield(name, symbol) {
+					return
+				}
 			}
-			return true
-		})
+		}
 	}
 }
 
 // Keys implements SymbolTable.
 func (c *CombinedSymbolTable) Keys() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		c.Iter()(func(name string, symbol *Symbol) bool {
-			return yield(name)
-		})
+		seen := make(map[string]struct{})
+		for name := range c.firstTable.Keys() {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				if !yield(name) {
+					break
+				}
+			}
+		}
+
+		for name := range c.secondTable.Keys() {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				if !yield(name) {
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -336,6 +353,7 @@ var TypesNodeIgnorableNames = collections.NewSetFromItems(
 	"PerformanceEntry",
 	"PerformanceMark",
 	"PerformanceMeasure",
+	"QueuingStrategy",
 	"ReadableByteStreamController",
 	"ReadableStream",
 	"ReadableStreamBYOBReader",
@@ -366,6 +384,7 @@ type DenoForkContext struct {
 	nodeGlobals      SymbolTable
 	combinedGlobals  SymbolTable
 	mergeSymbol      func(target *Symbol, source *Symbol, unidirectional bool) *Symbol
+	getMergedSymbol  func(source *Symbol) *Symbol
 	isNodeSourceFile func(path tspath.Path) bool
 }
 
@@ -373,6 +392,7 @@ func NewDenoForkContext(
 	globals SymbolTable,
 	nodeGlobals SymbolTable,
 	mergeSymbol func(target *Symbol, source *Symbol, unidirectional bool) *Symbol,
+	getMergedSymbol func(source *Symbol) *Symbol,
 	isNodeSourceFile func(path tspath.Path) bool,
 ) *DenoForkContext {
 	return &DenoForkContext{
@@ -383,6 +403,7 @@ func NewDenoForkContext(
 			secondTable: globals,
 		},
 		mergeSymbol:      mergeSymbol,
+		getMergedSymbol:  getMergedSymbol,
 		isNodeSourceFile: isNodeSourceFile,
 	}
 }
@@ -396,7 +417,6 @@ func (c *DenoForkContext) GetGlobalsForName(name string) SymbolTable {
 }
 
 func isTypesNodePkgPath(path tspath.Path) bool {
-	fmt.Fprintf(os.Stderr, "isTypesNodePkgPath %s\n", path)
 	return strings.HasSuffix(string(path), ".d.ts") && strings.Contains(string(path), "/@types/node/")
 }
 
@@ -414,14 +434,6 @@ func symbolHasAnyTypesNodePkgDecl(symbol *Symbol, hasNodeSourceFile func(*Node) 
 }
 
 func (c *DenoForkContext) MergeGlobalSymbolTable(node *Node, source SymbolTable, unidirectional bool) {
-	name := ""
-	if node != nil {
-		decl := node.Name()
-		if decl != nil {
-			name = decl.Text()
-		}
-	}
-	fmt.Fprintf(os.Stderr, "MergeGlobalSymbolTable %s\n", name)
 	sourceFile := GetSourceFileOfNode(node)
 	isNodeFile := c.HasNodeSourceFile(node)
 	isTypesNodeSourceFile := isNodeFile && isTypesNodePkgPath(sourceFile.Path())
@@ -435,17 +447,18 @@ func (c *DenoForkContext) MergeGlobalSymbolTable(node *Node, source SymbolTable,
 		}
 		targetSymbol := target.Get(id)
 		if isTypesNodeSourceFile {
-			fmt.Fprintf(os.Stderr, "isTypesNodeSourceFile %s\n", id)
 		}
 		if isTypesNodeSourceFile && targetSymbol != nil && TypesNodeIgnorableNames.Has(id) && !symbolHasAnyTypesNodePkgDecl(targetSymbol, c.HasNodeSourceFile) {
-			fmt.Fprintf(os.Stderr, "ignoring %s\n", id)
 			continue
 		}
-		sym := sourceSymbol
+		var merged *Symbol
 		if targetSymbol != nil {
-			sym = c.mergeSymbol(targetSymbol, sourceSymbol, unidirectional)
+			merged = c.mergeSymbol(targetSymbol, sourceSymbol, unidirectional)
+		} else {
+			merged = c.getMergedSymbol(sourceSymbol)
 		}
-		target.Set(id, sym)
+
+		target.Set(id, merged)
 	}
 }
 

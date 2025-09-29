@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -175,9 +174,7 @@ func (h *hostWrapper) SessionOptions() *project.SessionOptions {
 
 // IsNodeSourceFile implements project.ProjectHost.
 func (h *hostWrapper) IsNodeSourceFile(path tspath.Path) bool {
-	fmt.Fprintf(os.Stderr, "host IsNodeSourceFile %s\n", path)
 	if h.server.CallbackEnabled(CallbackIsNodeSourceFile) {
-		fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback %s\n", path)
 		result, err := h.server.call("isNodeSourceFile", path)
 		if err != nil {
 			panic(err)
@@ -186,11 +183,6 @@ func (h *hostWrapper) IsNodeSourceFile(path tspath.Path) bool {
 			var res bool
 			if err := json.Unmarshal(result, &res); err != nil {
 				panic(err)
-			}
-			if res {
-				fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback returning true %s\n", path)
-			} else {
-				fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback returning false %s\n", path)
 			}
 			return res
 		}
@@ -219,9 +211,9 @@ func newResolverWrapper(inner module.ResolverInterface, server *Server) *resolve
 }
 
 type PackageJsonIfApplicable struct {
-	PackageDirectory string
-	DirectoryExists  bool
-	Contents         string
+	PackageDirectory string `json:"packageDirectory"`
+	DirectoryExists  bool   `json:"directoryExists"`
+	Contents         string `json:"contents"`
 }
 
 // GetPackageJsonScopeIfApplicable implements module.ResolverInterface.
@@ -265,11 +257,24 @@ func (r *resolverWrapper) GetPackageScopeForPath(directory string) *packagejson.
 			panic(err)
 		}
 		if len(result) > 0 {
-			var res packagejson.InfoCacheEntry
+			var res *PackageJsonIfApplicable
 			if err := json.Unmarshal(result, &res); err != nil {
 				panic(err)
 			}
-			return &res
+			if res == nil {
+				return nil
+			}
+			contents, err := packagejson.Parse([]byte(res.Contents))
+			if err != nil {
+				panic(err)
+			}
+			return &packagejson.InfoCacheEntry{
+				PackageDirectory: res.PackageDirectory,
+				DirectoryExists:  res.DirectoryExists,
+				Contents: &packagejson.PackageJson{
+					Fields: contents,
+				},
+			}
 		}
 	}
 	return r.inner.GetPackageScopeForPath(directory)

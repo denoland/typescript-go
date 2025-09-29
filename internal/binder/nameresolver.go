@@ -322,7 +322,8 @@ loop:
 		if !excludeGlobals {
 			if r.DenoContext.HasNodeSourceFile(lastLocation) {
 				result = r.lookup(r.NodeGlobals, name, meaning|ast.SymbolFlagsGlobalLookup)
-			} else {
+			}
+			if result == nil {
 				result = r.lookup(r.DenoGlobals, name, meaning|ast.SymbolFlagsGlobalLookup)
 			}
 		}

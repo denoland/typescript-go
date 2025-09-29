@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"runtime"
 	"sync"
 
 	"github.com/go-json-experiment/json"
@@ -64,10 +62,6 @@ func (api *API) HandleRequest(ctx context.Context, method string, payload []byte
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(os.Stderr, "method: %s, params: %v\n", method, params)
-	defer func() {
-		fmt.Fprintf(os.Stderr, "done handling method: %s, params: %v\n", method, params)
-	}()
 
 	switch Method(method) {
 	case MethodRelease:
@@ -285,7 +279,6 @@ func (api *API) GetDiagnostics(ctx context.Context, projectId Handle[project.Pro
 
 	languageService := ls.NewLanguageService(project, snapshot.Converters())
 	diagnostics := languageService.GetDiagnostics(ctx)
-	fmt.Fprintf(os.Stderr, "diagnostics: %v\n", diagnostics)
 
 	api.symbolsMu.Lock()
 	defer api.symbolsMu.Unlock()
@@ -342,20 +335,12 @@ func (api *API) toPath(fileName string) tspath.Path {
 	return tspath.ToPath(fileName, api.session.GetCurrentDirectory(), api.session.FS().UseCaseSensitiveFileNames())
 }
 
-func stackTrace() string {
-	buf := make([]byte, 1024)
-	n := runtime.Stack(buf, false)
-	return string(buf[:n])
-}
-
 func encodeJSON(v any, err error) ([]byte, error) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "encodeJSON: %v\n", err)
 		return nil, err
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "encodeJSON err: %v\n, v: %v\n; stackTrace: %v\n", err, v, stackTrace())
 		return nil, err
 	}
 	return b, nil

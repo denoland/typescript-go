@@ -928,10 +928,9 @@ func NewChecker(program Program) *Checker {
 	c.denoGlobalThisSymbol = c.newSymbolEx(ast.SymbolFlagsModule, "globalThis", ast.CheckFlagsReadonly)
 	c.denoGlobalThisSymbol.Exports = c.denoGlobals
 	c.denoGlobals.Set(c.denoGlobalThisSymbol.Name, c.denoGlobalThisSymbol)
-	c.denoForkContext = ast.NewDenoForkContext(c.denoGlobals, c.nodeGlobals, c.mergeSymbol, c.program.IsNodeSourceFile)
+	c.denoForkContext = ast.NewDenoForkContext(c.denoGlobals, c.nodeGlobals, c.mergeSymbol, c.getMergedSymbol, c.program.IsNodeSourceFile)
 	c.nodeGlobalThisSymbol = c.newSymbolEx(ast.SymbolFlagsModule, "globalThis", ast.CheckFlagsReadonly)
 	c.nodeGlobalThisSymbol.Exports = c.denoForkContext.CombinedGlobals()
-	c.nodeGlobals.Set(c.nodeGlobalThisSymbol.Name, c.nodeGlobalThisSymbol)
 	c.nodeGlobals.Set(c.nodeGlobalThisSymbol.Name, c.nodeGlobalThisSymbol)
 	c.resolveName = c.createNameResolver().Resolve
 	c.resolveNameForSymbolSuggestion = c.createNameResolverForSuggestion().Resolve
@@ -1281,6 +1280,7 @@ func (c *Checker) initializeChecker() {
 	for _, file := range c.files {
 		if !ast.IsExternalOrCommonJSModule(file) {
 			c.denoForkContext.MergeGlobalSymbolTable(&file.Node, file.Locals, false /*unidirectional*/)
+			// c.mergeSymbolTable(c.denoGlobals, file.Locals, false,)
 		}
 		c.patternAmbientModules = append(c.patternAmbientModules, file.PatternAmbientModules...)
 		augmentations = append(augmentations, file.ModuleAugmentations)
@@ -10871,7 +10871,9 @@ func (c *Checker) checkPropertyAccessExpressionOrQualifiedName(node *ast.Node, l
 				}
 				return c.anyType
 			}
+			// deno: ensure condition matches above
 			if leftType.symbol == c.nodeGlobalThisSymbol {
+				// deno: don't bother with errors like above for simplicity
 				return c.anyType
 			}
 			if right.Text() != "" && !c.checkAndReportErrorForExtendingInterface(node) {
@@ -14250,11 +14252,12 @@ func (c *Checker) canHaveSyntheticDefault(file *ast.Node, moduleSymbol *ast.Symb
 			// In Node.js, CommonJS modules always have a synthetic default when imported into ESM
 			return true
 		}
-		if usageMode == core.ModuleKindESNext && targetMode == core.ModuleKindESNext {
-			// No matter what the `module` setting is, if we're confident that both files
-			// are ESM, there cannot be a synthetic default.
-			return false
-		}
+		// deno: commented out for https://github.com/microsoft/TypeScript/issues/51321
+		// if usageMode == core.ModuleKindESNext && targetMode == core.ModuleKindESNext {
+		// 	// No matter what the `module` setting is, if we're confident that both files
+		// 	// are ESM, there cannot be a synthetic default.
+		// 	return false
+		// }
 	}
 	if !c.allowSyntheticDefaultImports {
 		return false
@@ -14922,7 +14925,7 @@ func (c *Checker) tryFindAmbientModule(moduleName string, withAugmentations bool
 		return nil
 	}
 	symbol := c.getSymbol(c.denoForkContext.CombinedGlobals(), "\""+moduleName+"\"", ast.SymbolFlagsValueModule)
-	// merged symbol is module declaration symbol combined with all augmentations
+	// module declaration symbol combined with all augmentations
 	if withAugmentations {
 		return c.getMergedSymbol(symbol)
 	}
@@ -14933,7 +14936,7 @@ func (c *Checker) GetAmbientModules(sourceFile *ast.SourceFile) []*ast.Symbol {
 	isNode := c.denoForkContext.HasNodeSourceFile(&sourceFile.Node)
 	if isNode {
 		c.nodeAmbientModulesOnce.Do(func() {
-			for sym, global := range c.nodeGlobals.Iter() {
+			for sym, global := range c.denoForkContext.CombinedGlobals().Iter() {
 				if strings.HasPrefix(sym, "\"") && strings.HasSuffix(sym, "\"") {
 					c.ambientModules = append(c.ambientModules, global)
 				}
