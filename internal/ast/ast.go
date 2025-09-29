@@ -290,6 +290,9 @@ func (n *Node) LocalSymbol() *Symbol {
 func (n *Node) Locals() SymbolTable {
 	data := n.LocalsContainerData()
 	if data != nil {
+		if data.Locals == nil {
+			data.Locals = NewSymbolTable()
+		}
 		return data.Locals
 	}
 	return nil

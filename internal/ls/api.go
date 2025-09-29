@@ -78,7 +78,7 @@ type Diagnostic struct {
 }
 
 type diagnosticMaps struct {
-	diagnosticMapById    map[DiagnosticId]*Diagnostic
+	diagnosticMapById    map[DiagnosticId]Diagnostic
 	diagnosticReverseMap map[*ast.Diagnostic]DiagnosticId
 }
 
@@ -88,7 +88,7 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageS
 	}
 	id := DiagnosticId(len(d.diagnosticMapById) + 1)
 
-	diag := &Diagnostic{
+	diag := Diagnostic{
 		Id:                 id,
 		FileName:           diagnostic.File().FileName(),
 		Start:              getPosition(diagnostic.File(), diagnostic.Loc().Pos(), ls),
@@ -116,23 +116,23 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageS
 	return id
 }
 
-func (d *diagnosticMaps) getDiagnostics() []*Diagnostic {
-	diagnostics := make([]*Diagnostic, 0, len(d.diagnosticMapById))
+func (d *diagnosticMaps) getDiagnostics() []Diagnostic {
+	diagnostics := make([]Diagnostic, 0, len(d.diagnosticMapById))
 	for _, diagnostic := range d.diagnosticMapById {
 		diagnostics = append(diagnostics, diagnostic)
 	}
 
-	slices.SortFunc(diagnostics, func(a, b *Diagnostic) int {
+	slices.SortFunc(diagnostics, func(a, b Diagnostic) int {
 		return int(int64(a.Id) - int64(b.Id))
 	})
 	return diagnostics
 }
 
-func (l *LanguageService) GetDiagnostics(ctx context.Context) []*Diagnostic {
+func (l *LanguageService) GetDiagnostics(ctx context.Context) []Diagnostic {
 	program := l.GetProgram()
 	sourceFiles := program.GetSourceFiles()
 	diagnosticMaps := &diagnosticMaps{
-		diagnosticMapById:    make(map[DiagnosticId]*Diagnostic),
+		diagnosticMapById:    make(map[DiagnosticId]Diagnostic),
 		diagnosticReverseMap: make(map[*ast.Diagnostic]DiagnosticId),
 	}
 	diagnostics := make([]*ast.Diagnostic, 0, len(sourceFiles))

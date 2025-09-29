@@ -3631,7 +3631,7 @@ func (c *Checker) checkBlock(node *ast.Node) {
 	} else {
 		c.checkSourceElements(node.Statements())
 	}
-	if node.Locals().Len() != 0 {
+	if node.Locals() != nil && node.Locals().Len() != 0 {
 		c.registerForUnusedIdentifiersCheck(node)
 	}
 }
@@ -15695,7 +15695,7 @@ func (c *Checker) getSymbolFlagsEx(symbol *ast.Symbol, excludeTypeOnlyMeanings b
 			typeOnlyResolution = c.resolveAlias(typeOnlyDeclaration.Symbol())
 		}
 	}
-	var typeOnlyExportStarTargets ast.SymbolTable
+	var typeOnlyExportStarTargets ast.SymbolTable = ast.NewSymbolTable()
 	if typeOnlyDeclarationIsExportStar && typeOnlyResolution != nil {
 		typeOnlyExportStarTargets = c.getExportsOfModule(typeOnlyResolution)
 	}
@@ -18307,7 +18307,11 @@ func (c *Checker) resolveStructuredTypeMembers(t *Type) *StructuredType {
 			panic("Unhandled case in resolveStructuredTypeMembers")
 		}
 	}
-	return t.AsStructuredType()
+	ret := t.AsStructuredType()
+	if ret.members == nil {
+		ret.members = ast.NewSymbolTable()
+	}
+	return ret
 }
 
 func (c *Checker) resolveClassOrInterfaceMembers(t *Type) {
@@ -18327,7 +18331,7 @@ func (c *Checker) resolveTypeReferenceMembers(t *Type) {
 
 func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters []*Type, typeArguments []*Type) {
 	var mapper *TypeMapper
-	var members ast.SymbolTable
+	members := ast.NewSymbolTable()
 	var callSignatures []*Signature
 	var constructSignatures []*Signature
 	var indexInfos []*IndexInfo
@@ -18335,6 +18339,9 @@ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters
 	resolved := c.resolveDeclaredMembers(source)
 	if slices.Equal(typeParameters, typeArguments) {
 		members = resolved.declaredMembers
+		if members == nil {
+			panic("members is nil in resolveObjectTypeMembers 1")
+		}
 		callSignatures = resolved.declaredCallSignatures
 		constructSignatures = resolved.declaredConstructSignatures
 		indexInfos = resolved.declaredIndexInfos
@@ -18342,6 +18349,9 @@ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters
 		instantiated = true
 		mapper = newTypeMapper(typeParameters, typeArguments)
 		members = c.instantiateSymbolTable(resolved.declaredMembers, mapper, len(typeParameters) == 1 /*mappingThisOnly*/)
+		if members == nil {
+			members = ast.NewSymbolTable()
+		}
 		callSignatures = c.instantiateSignatures(resolved.declaredCallSignatures, mapper)
 		constructSignatures = c.instantiateSignatures(resolved.declaredConstructSignatures, mapper)
 		indexInfos = c.instantiateIndexInfos(resolved.declaredIndexInfos, mapper)
@@ -18350,6 +18360,9 @@ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters
 	if len(baseTypes) != 0 {
 		if !instantiated {
 			members = members.Clone()
+			if members == nil {
+				panic("members is nil in resolveObjectTypeMembers 2")
+			}
 		}
 		c.setStructuredTypeMembers(t, members, callSignatures, constructSignatures, indexInfos)
 		thisArgument := core.LastOrNil(typeArguments)
@@ -19960,6 +19973,9 @@ func (c *Checker) instantiateSymbolTable(symbols ast.SymbolTable, m *TypeMapper,
 				result.Set(id, c.instantiateSymbol(symbol, m))
 			}
 		}
+	}
+	if result == nil {
+		panic("result is nil in instantiateSymbolTable")
 	}
 	return result
 }
