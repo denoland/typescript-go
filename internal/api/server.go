@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -70,6 +71,7 @@ const (
 	CallbackGetPackageJsonScopeIfApplicable
 	CallbackGetPackageScopeForPath
 	CallbackGetImpliedNodeFormatForFile
+	CallbackIsNodeSourceFile
 )
 
 type ServerOptions struct {
@@ -173,6 +175,26 @@ func (h *hostWrapper) SessionOptions() *project.SessionOptions {
 
 // IsNodeSourceFile implements project.ProjectHost.
 func (h *hostWrapper) IsNodeSourceFile(path tspath.Path) bool {
+	fmt.Fprintf(os.Stderr, "host IsNodeSourceFile %s\n", path)
+	if h.server.CallbackEnabled(CallbackIsNodeSourceFile) {
+		fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback %s\n", path)
+		result, err := h.server.call("isNodeSourceFile", path)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res bool
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			if res {
+				fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback returning true %s\n", path)
+			} else {
+				fmt.Fprintf(os.Stderr, "IsNodeSourceFile callback returning false %s\n", path)
+			}
+			return res
+		}
+	}
 	return h.inner.IsNodeSourceFile(path)
 }
 
@@ -506,6 +528,8 @@ func (s *Server) enableCallback(callback string) error {
 		s.enabledCallbacks |= CallbackGetPackageScopeForPath
 	case "getImpliedNodeFormatForFile":
 		s.enabledCallbacks |= CallbackGetImpliedNodeFormatForFile
+	case "isNodeSourceFile":
+		s.enabledCallbacks |= CallbackIsNodeSourceFile
 	default:
 		return fmt.Errorf("unknown callback: %s", callback)
 	}
