@@ -113,6 +113,7 @@ jobs:
           VERSION="${RAW_TAG#v}"
           TITLE="TypeScript Go ${VERSION}"
           NOTES="Release ${VERSION}"
+          REPO="${GITHUB_REPOSITORY}"
 
           shopt -s nullglob
           ASSETS=(release/*.zip)
@@ -121,9 +122,9 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$RAW_TAG" >/dev/null 2>&1; then
-            gh release edit "$RAW_TAG" --title "$TITLE" --notes "$NOTES"
-            gh release upload "$RAW_TAG" "${ASSETS[@]}" --clobber
+          if gh release view "$RAW_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$RAW_TAG" --repo "$REPO" --title "$TITLE" --notes "$NOTES"
+            gh release upload "$RAW_TAG" "${ASSETS[@]}" --repo "$REPO" --clobber
           else
-            gh release create "$RAW_TAG" "${ASSETS[@]}" --title "$TITLE" --notes "$NOTES" --latest --verify-tag
+            gh release create "$RAW_TAG" "${ASSETS[@]}" --repo "$REPO" --title "$TITLE" --notes "$NOTES" --latest --verify-tag
           fi
