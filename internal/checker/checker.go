@@ -18342,9 +18342,6 @@ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters
 	resolved := c.resolveDeclaredMembers(source)
 	if slices.Equal(typeParameters, typeArguments) {
 		members = resolved.declaredMembers
-		if members == nil {
-			panic("members is nil in resolveObjectTypeMembers 1")
-		}
 		callSignatures = resolved.declaredCallSignatures
 		constructSignatures = resolved.declaredConstructSignatures
 		indexInfos = resolved.declaredIndexInfos
@@ -18363,9 +18360,6 @@ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters
 	if len(baseTypes) != 0 {
 		if !instantiated {
 			members = members.Clone()
-			if members == nil {
-				panic("members is nil in resolveObjectTypeMembers 2")
-			}
 		}
 		c.setStructuredTypeMembers(t, members, callSignatures, constructSignatures, indexInfos)
 		thisArgument := core.LastOrNil(typeArguments)
