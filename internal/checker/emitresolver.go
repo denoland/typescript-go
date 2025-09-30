@@ -519,7 +519,8 @@ func (r *emitResolver) IsDefinitelyReferenceToGlobalSymbolObject(node *ast.Node)
 	r.checkerMu.Lock()
 	defer r.checkerMu.Unlock()
 	// Exactly `globalThis.Symbol.something` and `globalThis` resolves to the global `globalThis`
-	return r.checker.getResolvedSymbol(node.Expression().Expression()) == r.checker.globalThisSymbol
+	resolved := r.checker.getResolvedSymbol(node.Expression().Expression())
+	return resolved == r.checker.denoGlobalThisSymbol || resolved == r.checker.nodeGlobalThisSymbol
 }
 
 func (r *emitResolver) RequiresAddingImplicitUndefined(declaration *ast.Node, symbol *ast.Symbol, enclosingDeclaration *ast.Node) bool {
