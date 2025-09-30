@@ -75,6 +75,7 @@ type Diagnostic struct {
 	ReportsUnnecessary bool           `json:"reportsUnnecessary"`
 	ReportsDeprecated  bool           `json:"reportsDeprecated"`
 	SkippedOnNoEmit    bool           `json:"skippedOnNoEmit"`
+	SourceLine         string         `json:"sourceLine"`
 }
 
 type diagnosticMaps struct {
@@ -88,13 +89,26 @@ func (d *diagnosticMaps) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageS
 	}
 	id := DiagnosticId(len(d.diagnosticMapById) + 1)
 
+	startPos := diagnostic.Loc().Pos()
+	startPosLineCol := getPosition(diagnostic.File(), startPos, ls)
+	lineMap := ls.converters.getLineMap(diagnostic.File().FileName())
+	lineStartPos := lineMap.LineStarts[startPosLineCol.Line]
+	var lineEndPos int
+	if int(startPosLineCol.Line+1) >= len(lineMap.LineStarts) {
+		lineEndPos = len(diagnostic.File().Text())
+	} else {
+		lineEndPos = int(lineMap.LineStarts[startPosLineCol.Line+1]) - 1
+	}
+	sourceLine := diagnostic.File().Text()[lineStartPos:lineEndPos]
+
 	diag := Diagnostic{
 		Id:                 id,
 		FileName:           diagnostic.File().FileName(),
-		Start:              getPosition(diagnostic.File(), diagnostic.Loc().Pos(), ls),
+		Start:              startPosLineCol,
 		End:                getPosition(diagnostic.File(), diagnostic.Loc().End(), ls),
-		StartPos:           diagnostic.Loc().Pos(),
+		StartPos:           startPos,
 		EndPos:             diagnostic.Loc().End(),
+		SourceLine:         sourceLine,
 		Code:               diagnostic.Code(),
 		Category:           diagnostic.Category().Name(),
 		Message:            diagnostic.Message(),
