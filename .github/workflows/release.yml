@@ -96,11 +96,36 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
       - name: Download build artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           path: release
           merge-multiple: true
+
+      - name: Create source archive
+        run: |
+          set -euo pipefail
+
+          RAW_TAG="${GITHUB_REF_NAME}"
+          VERSION="${RAW_TAG#v}"
+          ARCHIVE_FOLDER="typescript-go-${VERSION}"
+          ARCHIVE_NAME="${ARCHIVE_FOLDER}-source.zip"
+          TMP_DIR="$(mktemp -d)"
+          SOURCE_DIR="${TMP_DIR}/${ARCHIVE_FOLDER}"
+
+          mkdir -p "${SOURCE_DIR}"
+
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='release/' \
+            --exclude='node_modules/' \
+            --exclude='testdata/' \
+            ./ "${SOURCE_DIR}/"
+
+          mkdir -p release
+          (cd "${TMP_DIR}" && zip -9 -r "${GITHUB_WORKSPACE}/release/${ARCHIVE_NAME}" "${ARCHIVE_FOLDER}")
 
       - name: Create or update GitHub release
         env:
