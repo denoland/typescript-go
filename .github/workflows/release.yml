@@ -76,7 +76,6 @@ jobs:
             -o "$OUT_DIR/$BIN_NAME" \
             ./cmd/tsgo
 
-          cp internal/bundled/libs/* "$OUT_DIR/"
           cp LICENSE "$OUT_DIR/"
           cp NOTICE.txt "$OUT_DIR/"
 
