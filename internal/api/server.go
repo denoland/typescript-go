@@ -750,7 +750,7 @@ func (s *Server) Realpath(path string) string {
 
 // UseCaseSensitiveFileNames implements vfs.FS.
 func (s *Server) UseCaseSensitiveFileNames() bool {
-	return s.fs.UseCaseSensitiveFileNames()
+	return true
 }
 
 // WriteFile implements vfs.FS.
