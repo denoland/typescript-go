@@ -81,7 +81,7 @@ jobs:
 
           ARCHIVE_NAME="${TARGET}.zip"
           mkdir -p artifacts
-          (cd dist && zip -9 -r "../artifacts/${ARCHIVE_NAME}" "${TARGET}")
+          zip -9 -j "artifacts/${ARCHIVE_NAME}" "$OUT_DIR"/*
 
           echo "archive-path=artifacts/${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
 
