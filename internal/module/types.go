@@ -19,6 +19,7 @@ type ResolutionHost interface {
 type ModeAwareCacheKey struct {
 	Name string
 	Mode core.ResolutionMode
+	ImportAttributeType string
 }
 
 type ResolvedProjectReference interface {
