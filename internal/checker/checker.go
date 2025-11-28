@@ -5625,12 +5625,12 @@ func (c *Checker) checkExternalModuleExports(node *ast.Node) {
 }
 
 func (c *Checker) hasExportedMembers(moduleSymbol *ast.Symbol, isCommonJS bool) bool {
-	for id := range moduleSymbol.Exports {
+	for id := range moduleSymbol.Exports.Iter() {
 		if id != ast.InternalSymbolNameExportEquals {
 			if !isCommonJS {
 				return true
 			}
-			for _, declaration := range moduleSymbol.Exports[id].Declarations {
+			for _, declaration := range moduleSymbol.Exports.Get(id).Declarations {
 				if declaration.Kind != ast.KindJSTypeAliasDeclaration {
 					return true
 				}
@@ -11054,7 +11054,7 @@ func (c *Checker) checkPropertyAccessExpressionOrQualifiedName(node *ast.Node, l
 			if !isUncheckedJS && c.isJSLiteralType(leftType) {
 				return c.anyType
 			}
-			if leftType.symbol == c.globalThisSymbol {
+			if leftType.symbol == c.denoGlobalThisSymbol {
 				globalSymbol := c.denoGlobalThisSymbol.Exports.Get(right.Text())
 				if globalSymbol != nil && globalSymbol.Flags&ast.SymbolFlagsBlockScoped != 0 {
 					c.error(right, diagnostics.Property_0_does_not_exist_on_type_1, right.Text(), c.TypeToString(leftType))
@@ -12886,7 +12886,7 @@ func (c *Checker) checkObjectLiteral(node *ast.Node, checkMode CheckMode) *Type 
 		return result
 	}
 	// expando object literals have empty properties but filled exports -- skip straight to type creation
-	if len(node.Properties()) == 0 && node.Symbol() != nil && len(node.Symbol().Exports) != 0 {
+	if len(node.Properties()) == 0 && node.Symbol() != nil && node.Symbol().Exports.Len() != 0 {
 		propertiesTable = node.Symbol().Exports
 		return createObjectLiteralType()
 	}
@@ -14293,7 +14293,7 @@ func (c *Checker) reportNonDefaultExport(moduleSymbol *ast.Symbol, node *ast.Nod
 					return false
 				}
 				resolvedExternalModuleName := c.resolveExternalModuleName(decl, decl.ModuleSpecifier(), false /*ignoreErrors*/)
-				return resolvedExternalModuleName != nil && resolvedExternalModuleName.Exports[ast.InternalSymbolNameDefault] != nil
+				return resolvedExternalModuleName != nil && resolvedExternalModuleName.Exports.Get(ast.InternalSymbolNameDefault) != nil
 			})
 			if defaultExport != nil {
 				diagnostic.AddRelatedInfo(createDiagnosticForNode(defaultExport, diagnostics.X_export_Asterisk_does_not_re_export_a_default))
@@ -15846,7 +15846,7 @@ func (c *Checker) getExportsOfModuleWorker(moduleSymbol *ast.Symbol) (exports as
 	}
 	var originalModule *ast.Symbol
 	if moduleSymbol != nil {
-		if c.resolveSymbolEx(moduleSymbol.Exports[ast.InternalSymbolNameExportEquals], false /*dontResolveAlias*/) != nil {
+		if c.resolveSymbolEx(moduleSymbol.Exports.Get(ast.InternalSymbolNameExportEquals), false /*dontResolveAlias*/) != nil {
 			originalModule = moduleSymbol
 		}
 	}
@@ -15857,10 +15857,10 @@ func (c *Checker) getExportsOfModuleWorker(moduleSymbol *ast.Symbol) (exports as
 		exports = ast.NewSymbolTable()
 	}
 	// A CommonJS module defined by an 'export=' might also export typedefs, stored on the original module
-	if originalModule != nil && len(originalModule.Exports) > 1 {
-		for _, symbol := range originalModule.Exports {
-			if symbol.Flags&ast.SymbolFlagsType != 0 && symbol.Name != ast.InternalSymbolNameExportEquals && exports[symbol.Name] == nil {
-				exports[symbol.Name] = symbol
+	if originalModule != nil && originalModule.Exports.Len() > 1 {
+		for _, symbol := range originalModule.Exports.Iter() {
+			if symbol.Flags&ast.SymbolFlagsType != 0 && symbol.Name != ast.InternalSymbolNameExportEquals && exports.Get(symbol.Name) == nil {
+				exports.Set(symbol.Name, symbol)
 			}
 		}
 	}
@@ -21642,23 +21642,23 @@ func (c *Checker) getDefaultOrUnknownFromTypeParameter(t *Type) *Type {
 }
 
 func (c *Checker) getNamedMembers(members ast.SymbolTable, container *ast.Symbol) []*ast.Symbol {
-	if len(members) == 0 {
+	if members.Len() == 0 {
 		return nil
 	}
 	// For classes and interfaces, we store explicitly declared members ahead of inherited members. This ensures we process
 	// explicitly declared members first in type relations, which is beneficial because explicitly declared members are more
 	// likely to contain discriminating differences. See for example https://github.com/microsoft/typescript-go/issues/1968.
-	result := make([]*ast.Symbol, 0, len(members))
+	result := make([]*ast.Symbol, 0, members.Len())
 	var containedCount int
 	if container != nil && container.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsInterface) != 0 {
-		for id, symbol := range members {
+		for id, symbol := range members.Iter() {
 			if c.isNamedMember(symbol, id) && c.isDeclarationContainedBy(symbol, container) {
 				result = append(result, symbol)
 			}
 		}
 		containedCount = len(result)
 	}
-	for id, symbol := range members {
+	for id, symbol := range members.Iter() {
 		if c.isNamedMember(symbol, id) && (container == nil || container.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsInterface) == 0 || !c.isDeclarationContainedBy(symbol, container)) {
 			result = append(result, symbol)
 		}
