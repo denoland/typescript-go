@@ -50,6 +50,7 @@ type SessionOptions struct {
 	PushDiagnosticsEnabled bool
 	DebounceDelay          time.Duration
 	Locale                 locale.Locale
+	MakeHost               func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
 }
 
 type SessionInit struct {
