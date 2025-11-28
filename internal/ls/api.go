@@ -83,7 +83,7 @@ type diagnosticList struct {
 func (d *diagnosticList) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageService, shouldAdd bool) *Diagnostic {
 	startPos := diagnostic.Loc().Pos()
 	startPosLineCol := getPosition(diagnostic.File(), startPos, ls)
-	lineMap := ls.converters.getLineMap(diagnostic.File().FileName())
+	lineMap := ls.converters.GetLineMap(diagnostic.File().FileName())
 	lineStartPos := lineMap.LineStarts[startPosLineCol.Line]
 	var lineEndPos int
 	if int(startPosLineCol.Line+1) >= len(lineMap.LineStarts) {

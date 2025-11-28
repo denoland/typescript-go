@@ -414,7 +414,7 @@ func (p *Program) GetTypeCheckerForFileExclusive(ctx context.Context, file *ast.
 	return p.checkerPool.GetCheckerForFileExclusive(ctx, file)
 }
 
-func (p *Program) GetResolvedModule(file ast.HasFileName, moduleReference string, mode core.ResolutionMode) *module.ResolvedModule {
+func (p *Program) GetResolvedModule(file ast.HasFileName, moduleReference string, mode core.ResolutionMode, importAttributeType string) *module.ResolvedModule {
 	if resolutions, ok := p.resolvedModules[file.Path()]; ok {
 		if resolved, ok := resolutions[module.ModeAwareCacheKey{Name: moduleReference, Mode: mode, ImportAttributeType: importAttributeType}]; ok {
 			return resolved
