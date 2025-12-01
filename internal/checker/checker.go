@@ -24654,6 +24654,9 @@ func (c *Checker) cloneTypeReference(source *Type) *Type {
 func (c *Checker) setStructuredTypeMembers(t *Type, members ast.SymbolTable, callSignatures []*Signature, constructSignatures []*Signature, indexInfos []*IndexInfo) {
 	t.objectFlags |= ObjectFlagsMembersResolved
 	data := t.AsStructuredType()
+	if members == nil {
+		members = ast.NewSymbolTable()
+	}
 	data.members = members
 	data.properties = c.getNamedMembers(members, t.symbol)
 	if len(callSignatures) != 0 {
