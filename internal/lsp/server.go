@@ -996,7 +996,7 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 			DebounceDelay:          500 * time.Millisecond,
 			PushDiagnosticsEnabled: !disablePushDiagnostics,
 			Locale:                 s.locale,
-			MakeHost:           project.NewProjectHost,
+			MakeHost:               project.NewProjectHost,
 		},
 		FS:          s.fs,
 		Logger:      s.logger,
