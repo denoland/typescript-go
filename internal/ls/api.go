@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/astnav"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/internal/compiler"
+	"github.com/microsoft/typescript-go/internal/locale"
 )
 
 var (
@@ -78,6 +79,7 @@ type Diagnostic struct {
 
 type diagnosticList struct {
 	diagnostics []*Diagnostic
+	locale      locale.Locale
 }
 
 func (d *diagnosticList) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageService, shouldAdd bool) *Diagnostic {
@@ -102,7 +104,7 @@ func (d *diagnosticList) addDiagnostic(diagnostic *ast.Diagnostic, ls *LanguageS
 		SourceLine:         sourceLine,
 		Code:               diagnostic.Code(),
 		Category:           diagnostic.Category().Name(),
-		Message:            diagnostic.Message(),
+		Message:            diagnostic.Localize(d.locale),
 		MessageChain:       make([]*Diagnostic, 0, len(diagnostic.MessageChain())),
 		RelatedInformation: make([]*Diagnostic, 0, len(diagnostic.RelatedInformation())),
 	}
@@ -137,6 +139,7 @@ func (l *LanguageService) GetDiagnostics(ctx context.Context, fileNames []string
 	}
 	diagnosticList := &diagnosticList{
 		diagnostics: make([]*Diagnostic, 0),
+		locale:      program.CommandLine().Locale(),
 	}
 	diagnostics := make([]*ast.Diagnostic, 0, len(sourceFiles))
 	for _, sourceFile := range sourceFiles {
