@@ -4,6 +4,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -12,7 +13,7 @@ import (
 
 type compilerHost struct {
 	host  *host
-	trace func(msg string)
+	trace func(msg *diagnostics.Message, args ...any)
 }
 
 var _ compiler.CompilerHost = (*compilerHost)(nil)
@@ -37,8 +38,8 @@ func (h *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
 	return h.host.IsNodeSourceFile(path)
 }
 
-func (h *compilerHost) Trace(msg string) {
-	h.trace(msg)
+func (h *compilerHost) Trace(msg *diagnostics.Message, args ...any) {
+	h.trace(msg, args...)
 }
 
 func (h *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
