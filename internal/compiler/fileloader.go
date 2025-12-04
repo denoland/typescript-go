@@ -104,6 +104,7 @@ func processAllProgramFiles(
 	}
 	loader.addProjectReferenceTasks(singleThreaded)
 	loader.resolver = loader.opts.Host.MakeResolver(loader.projectReferenceFileMapper.host, compilerOptions, opts.TypingsLocation, opts.ProjectName)
+	hadTypesNode := false
 	for index, rootFile := range rootFiles {
 		loader.addRootTask(rootFile, nil, &FileIncludeReason{kind: fileIncludeKindRootFile, data: index})
 	}
@@ -117,6 +118,12 @@ func processAllProgramFiles(
 			for index, lib := range compilerOptions.Lib {
 				if name, ok := tsoptions.GetLibFileName(lib); ok {
 					libFile := loader.pathForLibFile(name)
+					// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
+					// so defer loading this until after everything else
+					if libFile.path == "asset:///lib.node.d.ts" {
+						hadTypesNode = true
+						continue
+					}
 					loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: index})
 				}
 				// !!! error on unknown name
