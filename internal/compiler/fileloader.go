@@ -270,6 +270,7 @@ func (p *fileLoader) toPath(file string) tspath.Path {
 	return tspath.ToPath(file, p.opts.Host.GetCurrentDirectory(), p.opts.Host.FS().UseCaseSensitiveFileNames())
 }
 
+// deno: function for getting if the loader has a @types/node package
 func (p *fileLoader) hasTypesNodePackage() bool {
 	hasTypesNode := false
 	p.filesParser.tasksByFileName.Range(func(key string, value *queuedParseTask) bool {
