@@ -27,6 +27,8 @@ const (
 
 type ProjectCollectionBuilder struct {
 	sessionOptions      *SessionOptions
+	makeHost            func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
+	host                ProjectHost
 	parseCache          *ParseCache
 	extendedConfigCache *ExtendedConfigCache
 
@@ -57,6 +59,7 @@ func newProjectCollectionBuilder(
 	sessionOptions *SessionOptions,
 	parseCache *ParseCache,
 	extendedConfigCache *ExtendedConfigCache,
+	makeHost func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost,
 ) *ProjectCollectionBuilder {
 	return &ProjectCollectionBuilder{
 		ctx:                                ctx,
@@ -65,6 +68,7 @@ func newProjectCollectionBuilder(
 		sessionOptions:                     sessionOptions,
 		parseCache:                         parseCache,
 		extendedConfigCache:                extendedConfigCache,
+		makeHost:                           makeHost,
 		base:                               oldProjectCollection,
 		configFileRegistryBuilder:          newConfigFileRegistryBuilder(fs, oldConfigFileRegistry, extendedConfigCache, sessionOptions, nil),
 		newSnapshotID:                      newSnapshotID,
@@ -975,14 +979,14 @@ func (b *ProjectCollectionBuilder) updateProgram(entry dirty.Value[*Project], lo
 		if updateProgram {
 			entry.Change(func(project *Project) {
 				oldHost := project.host
-				project.host = newCompilerHost(project.currentDirectory, project, b, logger.Fork("CompilerHost"))
+				project.host = b.sessionOptions.MakeHost(project.currentDirectory, project, b, logger.Fork("CompilerHost"))
 				result := project.CreateProgram()
 				project.Program = result.Program
 				project.checkerPool = result.CheckerPool
 				project.ProgramUpdateKind = result.UpdateKind
 				project.ProgramLastUpdate = b.newSnapshotID
 				if result.UpdateKind == ProgramUpdateKindCloned {
-					project.host.seenFiles = oldHost.seenFiles
+					project.host.UpdateSeenFiles(oldHost.SeenFiles())
 				}
 				if result.UpdateKind == ProgramUpdateKindNewFiles {
 					filesChanged = true

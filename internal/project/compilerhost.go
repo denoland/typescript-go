@@ -6,14 +6,29 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/compiler"
+	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/project/logging"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 )
 
-var _ compiler.CompilerHost = (*compilerHost)(nil)
+type ProjectHost interface {
+	compiler.CompilerHost
+	Builder() *ProjectCollectionBuilder
+	SessionOptions() *SessionOptions
+	SeenFiles() *collections.SyncSet[tspath.Path]
+	UpdateSeenFiles(*collections.SyncSet[tspath.Path])
+	Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry)
+	CompilerFS() *CompilerFS
+}
+
+var (
+	_ compiler.CompilerHost = (*compilerHost)(nil)
+	_ ProjectHost           = (*compilerHost)(nil)
+)
 
 type compilerHost struct {
 	configFilePath   tspath.Path
@@ -21,13 +36,23 @@ type compilerHost struct {
 	sessionOptions   *SessionOptions
 
 	fs                 *snapshotFSBuilder
-	compilerFS         *compilerFS
+	compilerFS         *CompilerFS
 	configFileRegistry *ConfigFileRegistry
 	seenFiles          *collections.SyncSet[tspath.Path]
 
 	project *Project
 	builder *ProjectCollectionBuilder
 	logger  *logging.LogTree
+}
+
+// TypesNodeIgnorableNames implements compiler.CompilerHost.
+func (c *compilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return ast.DenoForkContextInfo{}
+}
+
+// IsNodeSourceFile implements compiler.CompilerHost.
+func (c *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return false
 }
 
 type builderFileSource struct {
@@ -45,14 +70,14 @@ func (c *builderFileSource) FS() vfs.FS {
 	return c.snapshotFSBuilder.FS()
 }
 
-func newCompilerHost(
+func NewProjectHost(
 	currentDirectory string,
 	project *Project,
 	builder *ProjectCollectionBuilder,
 	logger *logging.LogTree,
-) *compilerHost {
+) ProjectHost {
 	seenFiles := &collections.SyncSet[tspath.Path]{}
-	compilerFS := &compilerFS{
+	compilerFS := &CompilerFS{
 		source: &builderFileSource{
 			seenFiles:         seenFiles,
 			snapshotFSBuilder: builder.fs,
@@ -136,19 +161,19 @@ func (c *compilerHost) Trace(msg *diagnostics.Message, args ...any) {
 	panic("unimplemented")
 }
 
-var _ vfs.FS = (*compilerFS)(nil)
+var _ vfs.FS = (*CompilerFS)(nil)
 
-type compilerFS struct {
+type CompilerFS struct {
 	source FileSource
 }
 
 // DirectoryExists implements vfs.FS.
-func (fs *compilerFS) DirectoryExists(path string) bool {
+func (fs *CompilerFS) DirectoryExists(path string) bool {
 	return fs.source.FS().DirectoryExists(path)
 }
 
 // FileExists implements vfs.FS.
-func (fs *compilerFS) FileExists(path string) bool {
+func (fs *CompilerFS) FileExists(path string) bool {
 	if fh := fs.source.GetFile(path); fh != nil {
 		return true
 	}
@@ -156,12 +181,12 @@ func (fs *compilerFS) FileExists(path string) bool {
 }
 
 // GetAccessibleEntries implements vfs.FS.
-func (fs *compilerFS) GetAccessibleEntries(path string) vfs.Entries {
+func (fs *CompilerFS) GetAccessibleEntries(path string) vfs.Entries {
 	return fs.source.FS().GetAccessibleEntries(path)
 }
 
 // ReadFile implements vfs.FS.
-func (fs *compilerFS) ReadFile(path string) (contents string, ok bool) {
+func (fs *CompilerFS) ReadFile(path string) (contents string, ok bool) {
 	if fh := fs.source.GetFile(path); fh != nil {
 		return fh.Content(), true
 	}
@@ -169,36 +194,64 @@ func (fs *compilerFS) ReadFile(path string) (contents string, ok bool) {
 }
 
 // Realpath implements vfs.FS.
-func (fs *compilerFS) Realpath(path string) string {
+func (fs *CompilerFS) Realpath(path string) string {
 	return fs.source.FS().Realpath(path)
 }
 
 // Stat implements vfs.FS.
-func (fs *compilerFS) Stat(path string) vfs.FileInfo {
+func (fs *CompilerFS) Stat(path string) vfs.FileInfo {
 	return fs.source.FS().Stat(path)
 }
 
 // UseCaseSensitiveFileNames implements vfs.FS.
-func (fs *compilerFS) UseCaseSensitiveFileNames() bool {
+func (fs *CompilerFS) UseCaseSensitiveFileNames() bool {
 	return fs.source.FS().UseCaseSensitiveFileNames()
 }
 
 // WalkDir implements vfs.FS.
-func (fs *compilerFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
+func (fs *CompilerFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 	panic("unimplemented")
 }
 
 // WriteFile implements vfs.FS.
-func (fs *compilerFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+func (fs *CompilerFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
 	panic("unimplemented")
 }
 
 // Remove implements vfs.FS.
-func (fs *compilerFS) Remove(path string) error {
+func (fs *CompilerFS) Remove(path string) error {
 	panic("unimplemented")
 }
 
 // Chtimes implements vfs.FS.
-func (fs *compilerFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
+func (fs *CompilerFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
 	panic("unimplemented")
+}
+
+func (c *compilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return module.NewResolver(host, options, typingsLocation, projectName)
+}
+
+func (c *compilerHost) Builder() *ProjectCollectionBuilder {
+	return c.builder
+}
+
+func (c *compilerHost) SessionOptions() *SessionOptions {
+	return c.sessionOptions
+}
+
+func (c *compilerHost) SeenFiles() *collections.SyncSet[tspath.Path] {
+	return c.seenFiles
+}
+
+func (c *compilerHost) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
+	c.seenFiles = seenFiles
+}
+
+func (c *compilerHost) Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry) {
+	c.freeze(snapshotFS, configFileRegistry)
+}
+
+func (c *compilerHost) CompilerFS() *CompilerFS {
+	return c.compilerFS
 }

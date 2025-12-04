@@ -29,7 +29,7 @@ type LibFile struct {
 
 type fileLoader struct {
 	opts                ProgramOptions
-	resolver            *module.Resolver
+	resolver            module.ResolverInterface
 	defaultLibraryPath  string
 	comparePathsOptions tspath.ComparePathsOptions
 	supportedExtensions []string
@@ -52,7 +52,7 @@ type fileLoader struct {
 }
 
 type processedFiles struct {
-	resolver                      *module.Resolver
+	resolver                      module.ResolverInterface
 	files                         []*ast.SourceFile
 	filesByPath                   map[tspath.Path]*ast.SourceFile
 	projectReferenceFileMapper    *projectReferenceFileMapper
@@ -103,7 +103,7 @@ func processAllProgramFiles(
 		includeProcessor:    &includeProcessor{},
 	}
 	loader.addProjectReferenceTasks(singleThreaded)
-	loader.resolver = module.NewResolver(loader.projectReferenceFileMapper.host, compilerOptions, opts.TypingsLocation, opts.ProjectName)
+	loader.resolver = loader.opts.Host.MakeResolver(loader.projectReferenceFileMapper.host, compilerOptions, opts.TypingsLocation, opts.ProjectName)
 	for index, rootFile := range rootFiles {
 		loader.addRootTask(rootFile, nil, &FileIncludeReason{kind: fileIncludeKindRootFile, data: index})
 	}
@@ -401,7 +401,7 @@ func (p *fileLoader) loadSourceFileMetaData(fileName string) ast.SourceFileMetaD
 			packageJsonType = value
 		}
 	}
-	impliedNodeFormat := ast.GetImpliedNodeFormatForFile(fileName, packageJsonType)
+	impliedNodeFormat := p.resolver.GetImpliedNodeFormatForFile(fileName, packageJsonType)
 	return ast.SourceFileMetaData{
 		PackageJsonType:      packageJsonType,
 		PackageJsonDirectory: packageJsonDirectory,
@@ -535,9 +535,17 @@ func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {
 				continue
 			}
 
+			var kind *string = nil
+			if ast.IsStringLiteralLike(entry) {
+				kind = getModuleLiteralImportAttributeType(entry)
+			}
+			importAttributeType := ""
+			if kind != nil {
+				importAttributeType = *kind
+			}
 			mode := getModeForUsageLocation(file.FileName(), meta, entry, optionsForFile)
-			resolvedModule, trace := p.resolver.ResolveModuleName(moduleName, fileName, mode, redirect)
-			resolutionsInFile[module.ModeAwareCacheKey{Name: moduleName, Mode: mode}] = resolvedModule
+			resolvedModule, trace := p.resolver.ResolveModuleName(moduleName, fileName, kind, mode, redirect)
+			resolutionsInFile[module.ModeAwareCacheKey{Name: moduleName, Mode: mode, ImportAttributeType: importAttributeType}] = resolvedModule
 			resolutionsTrace = append(resolutionsTrace, trace...)
 
 			if !resolvedModule.IsResolved() {
@@ -600,17 +608,25 @@ func (p *fileLoader) createSyntheticImport(text string, file *ast.SourceFile) *a
 	return externalHelpersModuleReference
 }
 
+func isDenoLibFile(name string) bool {
+	return strings.HasPrefix(name, "lib.deno")
+}
+
 func (p *fileLoader) pathForLibFile(name string) *LibFile {
 	if cached, ok := p.pathForLibFileCache.Load(name); ok {
 		return cached
 	}
 
 	path := tspath.CombinePaths(p.defaultLibraryPath, name)
+	if isDenoLibFile(name) {
+		libFileName, _ := tsoptions.GetLibFileName(name)
+		path = tspath.CombinePaths("asset:///", libFileName)
+	}
 	replaced := false
 	if p.opts.Config.CompilerOptions().LibReplacement.IsTrue() && name != "lib.d.ts" {
 		libraryName := getLibraryNameFromLibFileName(name)
 		resolveFrom := getInferredLibraryNameResolveFrom(p.opts.Config.CompilerOptions(), p.opts.Host.GetCurrentDirectory(), name)
-		resolution, trace := p.resolver.ResolveModuleName(libraryName, resolveFrom, core.ModuleKindCommonJS, nil)
+		resolution, trace := p.resolver.ResolveModuleName(libraryName, resolveFrom, nil, core.ModuleKindCommonJS, nil)
 		if resolution.IsResolved() {
 			path = resolution.ResolvedFileName
 			replaced = true
@@ -741,3 +757,105 @@ func getEmitSyntaxForUsageLocationWorker(fileName string, meta ast.SourceFileMet
 	}
 	return core.ModuleKindNone
 }
+
+// start added for deno
+func isStrOrIdentWithText(node *ast.Node, text string) bool {
+	if ast.IsStringLiteral(node) {
+		return node.Text() == text
+	} else if ast.IsIdentifier(node) {
+		return node.AsIdentifier().Text == text
+	} else {
+		return false
+	}
+}
+
+func getRawImportAttributeValue(node *ast.ImportAttribute) *string {
+	if !isStrOrIdentWithText(node.Name(), "type") {
+		return nil
+	}
+	return getRawTypeValue(node.Value)
+}
+
+func getRawTypeValue(node *ast.Node) *string {
+	if ast.IsStringLiteral(node) {
+		text := node.Text()
+		if len(text) > 0 {
+			return &text
+		}
+	}
+	return nil
+}
+
+func getModuleLiteralImportAttributeType(node *ast.StringLiteralLike) *string {
+	if node == nil {
+		return nil
+	}
+	parent := node.Parent
+	if parent == nil {
+		return nil
+	}
+
+	if ast.IsImportDeclaration(parent) || ast.IsExportDeclaration(parent) {
+		var attrs *ast.ImportAttributesNode
+		if ast.IsImportDeclaration(parent) {
+			attrs = parent.AsImportDeclaration().Attributes
+		} else {
+			attrs = parent.AsExportDeclaration().Attributes
+		}
+		if attrs == nil {
+			return nil
+		}
+		elements := attrs.AsImportAttributes().Attributes.Nodes
+		if elements == nil {
+			return nil
+		}
+		for _, element := range elements {
+			value := getRawImportAttributeValue(element.AsImportAttribute())
+			if value != nil {
+				return value
+			}
+		}
+		return nil
+	} else if ast.IsCallExpression(parent) {
+		arguments := parent.Arguments()
+		if parent.Expression().Kind != ast.KindImportKeyword ||
+			len(arguments) <= 1 ||
+			!ast.IsStringLiteral(arguments[0]) ||
+			!ast.IsObjectLiteralExpression(arguments[1]) {
+			return nil
+		}
+
+		obj := arguments[1].AsObjectLiteralExpression()
+		withExpr := find(obj.Properties.Nodes, func(p *ast.Node) bool {
+			return ast.IsPropertyAssignment(p) && isStrOrIdentWithText(p.Name(), "with")
+		})
+		if withExpr == nil {
+			return nil
+		}
+		withInitializer := (*withExpr).Initializer()
+		if !ast.IsObjectLiteralExpression(withInitializer) {
+			return nil
+		}
+		typeProp := find(withInitializer.Properties(), func(p *ast.Node) bool {
+			return ast.IsPropertyAssignment(p) && isStrOrIdentWithText(p.Name(), "type")
+		})
+		if typeProp == nil {
+			return nil
+		}
+		typeInitializer := (*typeProp).Initializer()
+		return getRawTypeValue(typeInitializer)
+	} else {
+		return nil
+	}
+}
+
+func find[T any](list []T, predicate func(T) bool) *T {
+	for _, item := range list {
+		if predicate(item) {
+			return &item
+		}
+	}
+	return nil
+}
+
+// end added for deno

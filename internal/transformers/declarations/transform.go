@@ -1937,7 +1937,7 @@ func (tx *DeclarationTransformer) transformExpandoAssignment(node *ast.BinaryExp
 	declarationData.Symbol = host
 
 	containerData := synthesizedNamespace.LocalsContainerData()
-	containerData.Locals = make(ast.SymbolTable, 0)
+	containerData.Locals = ast.NewSymbolTable()
 
 	saveDiag := tx.state.getSymbolAccessibilityDiagnostic
 	tx.state.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(node.AsNode())

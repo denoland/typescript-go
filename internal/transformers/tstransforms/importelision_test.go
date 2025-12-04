@@ -24,7 +24,7 @@ type fakeProgram struct {
 	files                          []*ast.SourceFile
 	getEmitModuleFormatOfFile      func(sourceFile ast.HasFileName) core.ModuleKind
 	getImpliedNodeFormatForEmit    func(sourceFile ast.HasFileName) core.ModuleKind
-	getResolvedModule              func(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode) *module.ResolvedModule
+	getResolvedModule              func(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode, importAttributeType string) *module.ResolvedModule
 	getSourceFile                  func(FileName string) *ast.SourceFile
 	getSourceFileForResolvedModule func(FileName string) *ast.SourceFile
 }
@@ -133,8 +133,8 @@ func (p *fakeProgram) GetModeForUsageLocation(sourceFile ast.HasFileName, locati
 	return p.getEmitModuleFormatOfFile(sourceFile)
 }
 
-func (p *fakeProgram) GetResolvedModule(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode) *module.ResolvedModule {
-	return p.getResolvedModule(currentSourceFile, moduleReference, mode)
+func (p *fakeProgram) GetResolvedModule(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode, importAttributeType string) *module.ResolvedModule {
+	return p.getResolvedModule(currentSourceFile, moduleReference, mode, importAttributeType)
 }
 
 func (p *fakeProgram) GetSourceFile(FileName string) *ast.SourceFile {
@@ -163,6 +163,18 @@ func (p *fakeProgram) GetResolvedModules() map[tspath.Path]module.ModeAwareCache
 
 func (p *fakeProgram) IsSourceFileDefaultLibrary(path tspath.Path) bool {
 	return false
+}
+
+func (p *fakeProgram) IsNodeSourceFile(path tspath.Path) bool {
+	return false
+}
+
+func (p *fakeProgram) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return ast.DenoForkContextInfo{}
+}
+
+func (p *fakeProgram) GetModuleLiteralImportAttributeType(node *ast.StringLiteralLike) string {
+	return ""
 }
 
 func TestImportElision(t *testing.T) {
@@ -235,7 +247,7 @@ func TestImportElision(t *testing.T) {
 					}
 					return nil
 				},
-				getResolvedModule: func(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode) *module.ResolvedModule {
+				getResolvedModule: func(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode, importAttributeType string) *module.ResolvedModule {
 					if currentSourceFile == file && moduleReference == "other" {
 						return &module.ResolvedModule{
 							ResolvedFileName: "other.ts",
