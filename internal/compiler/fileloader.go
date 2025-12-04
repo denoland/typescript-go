@@ -10,6 +10,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/deno"
 	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -104,10 +105,14 @@ func processAllProgramFiles(
 	}
 	loader.addProjectReferenceTasks(singleThreaded)
 	loader.resolver = loader.opts.Host.MakeResolver(loader.projectReferenceFileMapper.host, compilerOptions, opts.TypingsLocation, opts.ProjectName)
-	hadTypesNode := false
 	for index, rootFile := range rootFiles {
 		loader.addRootTask(rootFile, nil, &FileIncludeReason{kind: fileIncludeKindRootFile, data: index})
 	}
+
+	// deno: cause the sub tasks to be loaded which will tell us if there's a @types/node package
+	loader.filesParser.parse(&loader, loader.rootTasks)
+	rootTasksBeforeLibs := len(loader.rootTasks)
+
 	if len(rootFiles) > 0 && compilerOptions.NoLib.IsFalseOrUnknown() {
 		if compilerOptions.Lib == nil {
 			name := tsoptions.GetDefaultLibFileName(compilerOptions)
@@ -119,9 +124,7 @@ func processAllProgramFiles(
 				if name, ok := tsoptions.GetLibFileName(lib); ok {
 					libFile := loader.pathForLibFile(name)
 					// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
-					// so defer loading this until after everything else
-					if libFile.path == "asset:///lib.node.d.ts" {
-						hadTypesNode = true
+					if libFile.Name == "lib.node.d.ts" && loader.hasTypesNodePackage() {
 						continue
 					}
 					loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: index})
@@ -135,7 +138,10 @@ func processAllProgramFiles(
 		loader.addAutomaticTypeDirectiveTasks()
 	}
 
-	loader.filesParser.parse(&loader, loader.rootTasks)
+	// deno: now load the lib and type directive tasks
+	loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
+	loader.filesParser.parse(&loader, loader.rootTasks[rootTasksBeforeLibs:])
+
 	// Clear out loader and host to ensure its not used post program creation
 	loader.projectReferenceFileMapper.loader = nil
 	loader.projectReferenceFileMapper.host = nil
@@ -262,6 +268,18 @@ func processAllProgramFiles(
 
 func (p *fileLoader) toPath(file string) tspath.Path {
 	return tspath.ToPath(file, p.opts.Host.GetCurrentDirectory(), p.opts.Host.FS().UseCaseSensitiveFileNames())
+}
+
+func (p *fileLoader) hasTypesNodePackage() bool {
+	hasTypesNode := false
+	p.filesParser.tasksByFileName.Range(func(key string, value *queuedParseTask) bool {
+		if value.task.loaded && deno.IsTypesNodePkgPath(value.task.path) {
+			hasTypesNode = true
+			return false // stop iteration
+		}
+		return true // continue iteration
+	})
+	return hasTypesNode
 }
 
 func (p *fileLoader) addRootTask(fileName string, libFile *LibFile, includeReason *FileIncludeReason) {
@@ -616,7 +634,7 @@ func (p *fileLoader) createSyntheticImport(text string, file *ast.SourceFile) *a
 }
 
 func isDenoLibFile(name string) bool {
-	return strings.HasPrefix(name, "lib.deno")
+	return strings.HasPrefix(name, "lib.deno") || name == "lib.node.d.ts"
 }
 
 func (p *fileLoader) pathForLibFile(name string) *LibFile {

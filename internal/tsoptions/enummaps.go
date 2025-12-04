@@ -131,6 +131,7 @@ var LibMap = collections.NewOrderedMapFromList([]collections.MapEntry[string, an
 	{Key: "deno.shared_globals", Value: "lib.deno.shared_globals.d.ts"},
 	{Key: "deno.unstable", Value: "lib.deno.unstable.d.ts"},
 	{Key: "dom.extras", Value: "lib.dom.extras.d.ts"},
+	{Key: "node", Value: "lib.node.d.ts"},
 })
 
 var (
