@@ -3,10 +3,10 @@ package ast
 import (
 	"iter"
 	"maps"
-	"strings"
 	"sync/atomic"
 
 	"github.com/microsoft/typescript-go/internal/collections"
+	"github.com/microsoft/typescript-go/internal/deno"
 	"github.com/microsoft/typescript-go/internal/tspath"
 )
 
@@ -350,17 +350,13 @@ func (c *DenoForkContext) GetGlobalsForName(name string) SymbolTable {
 	}
 }
 
-func isTypesNodePkgPath(path tspath.Path) bool {
-	return strings.HasSuffix(string(path), ".d.ts") && strings.Contains(string(path), "/@types/node/")
-}
-
 func symbolHasAnyTypesNodePkgDecl(symbol *Symbol, hasNodeSourceFile func(*Node) bool) bool {
 	if symbol == nil || symbol.Declarations == nil {
 		return false
 	}
 	for _, decl := range symbol.Declarations {
 		sourceFile := GetSourceFileOfNode(decl)
-		if sourceFile != nil && hasNodeSourceFile(decl) && isTypesNodePkgPath(sourceFile.Path()) {
+		if sourceFile != nil && hasNodeSourceFile(decl) && deno.IsTypesNodePkgPath(sourceFile.Path()) {
 			return true
 		}
 	}
@@ -370,7 +366,7 @@ func symbolHasAnyTypesNodePkgDecl(symbol *Symbol, hasNodeSourceFile func(*Node) 
 func (c *DenoForkContext) MergeGlobalSymbolTable(node *Node, source SymbolTable, unidirectional bool) {
 	sourceFile := GetSourceFileOfNode(node)
 	isNodeFile := c.HasNodeSourceFile(node)
-	isTypesNodeSourceFile := isNodeFile && isTypesNodePkgPath(sourceFile.Path())
+	isTypesNodeSourceFile := isNodeFile && deno.IsTypesNodePkgPath(sourceFile.Path())
 
 	for id, sourceSymbol := range source.Iter() {
 		var target SymbolTable
