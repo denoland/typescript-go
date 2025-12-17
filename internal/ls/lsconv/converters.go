@@ -36,6 +36,10 @@ func NewConverters(positionEncoding lsproto.PositionEncodingKind, getLineMap fun
 	}
 }
 
+func (c *Converters) GetLineMap(fileName string) *LSPLineMap {
+	return c.getLineMap(fileName)
+}
+
 func (c *Converters) ToLSPRange(script Script, textRange core.TextRange) lsproto.Range {
 	return lsproto.Range{
 		Start: c.PositionToLineAndCharacter(script, core.TextPos(textRange.Pos())),

@@ -1441,7 +1441,7 @@ func forEachExternalModule(
 		isExcluded = getIsExcluded(excludePatterns)
 	}
 
-	for _, ambient := range ch.GetAmbientModules() {
+	for _, ambient := range ch.GetAmbientModules(nil) {
 		if !strings.Contains(ambient.Name, "*") && !(excludePatterns != nil && core.Every(ambient.Declarations, func(d *ast.Node) bool {
 			return isExcluded(ast.GetSourceFileOfNode(d))
 		})) {

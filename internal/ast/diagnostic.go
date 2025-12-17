@@ -36,6 +36,7 @@ func (d *Diagnostic) Len() int                          { return d.loc.Len() }
 func (d *Diagnostic) Loc() core.TextRange               { return d.loc }
 func (d *Diagnostic) Code() int32                       { return d.code }
 func (d *Diagnostic) Category() diagnostics.Category    { return d.category }
+func (d *Diagnostic) Message() string                   { return d.message.String() }
 func (d *Diagnostic) MessageKey() diagnostics.Key       { return d.messageKey }
 func (d *Diagnostic) MessageArgs() []string             { return d.messageArgs }
 func (d *Diagnostic) MessageChain() []*Diagnostic       { return d.messageChain }

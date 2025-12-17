@@ -148,6 +148,14 @@ func GetCompilerOptionsWithRedirect(compilerOptions *core.CompilerOptions, redir
 	return compilerOptions
 }
 
+type ResolverInterface interface {
+	ResolveModuleName(moduleName string, containingFile string, importAttributeType *string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedModule, []DiagAndArgs)
+	ResolvePackageDirectory(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) *ResolvedModule
+	ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedTypeReferenceDirective, []DiagAndArgs)
+	GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry
+	GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind
+}
+
 type Resolver struct {
 	caches
 	host            ResolutionHost
@@ -156,6 +164,8 @@ type Resolver struct {
 	projectName     string
 	// reportDiagnostic: DiagnosticReporter
 }
+
+var _ ResolverInterface = (*Resolver)(nil)
 
 func NewResolver(
 	host ResolutionHost,
@@ -215,7 +225,7 @@ func (r *Resolver) ResolveTypeReferenceDirective(
 	return result, traceBuilder.getTraces()
 }
 
-func (r *Resolver) ResolveModuleName(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedModule, []DiagAndArgs) {
+func (r *Resolver) ResolveModuleName(moduleName string, containingFile string, importAttributeType *string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedModule, []DiagAndArgs) {
 	traceBuilder := r.newTraceBuilder()
 	compilerOptions := GetCompilerOptionsWithRedirect(r.compilerOptions, redirectedReference)
 	if traceBuilder != nil {
@@ -268,6 +278,10 @@ func (r *Resolver) ResolvePackageDirectory(moduleName string, containingFile str
 		return state.createResolvedModuleHandlingSymlink(result)
 	}
 	return nil
+}
+
+func (r *Resolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	return ast.GetImpliedNodeFormatForFile(path, packageJsonType)
 }
 
 func (r *Resolver) tryResolveFromTypingsLocation(moduleName string, containingDirectory string, originalResult *ResolvedModule, traceBuilder *tracer) *ResolvedModule {

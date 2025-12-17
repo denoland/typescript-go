@@ -105,6 +105,9 @@ func (api *API) HandleRequest(ctx context.Context, method string, payload []byte
 		return encodeJSON(core.TryMap(params.Symbols, func(symbol Handle[ast.Symbol]) (any, error) {
 			return api.GetTypeOfSymbol(ctx, params.Project, symbol)
 		}))
+	case MethodGetDiagnostics:
+		params := params.(*GetDiagnosticsParams)
+		return encodeJSON((api.GetDiagnostics(ctx, params.Project, params.FileNames)))
 	default:
 		return nil, fmt.Errorf("unhandled API method %q", method)
 	}
@@ -263,6 +266,26 @@ func (api *API) GetSourceFile(projectId Handle[project.Project], fileName string
 	return sourceFile, nil
 }
 
+func (api *API) GetDiagnostics(ctx context.Context, projectId Handle[project.Project], fileNames []string) ([]*ls.Diagnostic, error) {
+	projectPath, ok := api.projects[projectId]
+	if !ok {
+		return nil, errors.New("project ID not found")
+	}
+	snapshot, release := api.session.Snapshot()
+	defer release()
+	project := snapshot.ProjectCollection.GetProjectByPath(projectPath)
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	languageService := ls.NewLanguageService(project.GetProgram(), snapshot)
+	diagnostics := languageService.GetDiagnostics(ctx, fileNames)
+
+	api.symbolsMu.Lock()
+	defer api.symbolsMu.Unlock()
+	return diagnostics, nil
+}
+
 func (api *API) releaseHandle(handle string) error {
 	switch handle[0] {
 	case handlePrefixProject:
@@ -317,5 +340,9 @@ func encodeJSON(v any, err error) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }

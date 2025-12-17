@@ -6,17 +6,27 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/bundled"
+	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/diagnostics"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/module"
+	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/logging"
+	"github.com/microsoft/typescript-go/internal/tsoptions"
+	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 )
@@ -58,6 +68,12 @@ const (
 	CallbackGetAccessibleEntries
 	CallbackReadFile
 	CallbackRealpath
+	CallbackResolveModuleName
+	CallbackResolveTypeReferenceDirective
+	CallbackGetPackageJsonScopeIfApplicable
+	CallbackGetPackageScopeForPath
+	CallbackGetImpliedNodeFormatForFile
+	CallbackIsNodeSourceFile
 )
 
 type ServerOptions struct {
@@ -66,6 +82,7 @@ type ServerOptions struct {
 	Err                io.Writer
 	Cwd                string
 	DefaultLibraryPath string
+	LogEnabled         bool
 }
 
 var _ vfs.FS = (*Server)(nil)
@@ -85,8 +102,252 @@ type Server struct {
 	logger           logging.Logger
 	api              *API
 
+	forkContextInfo ast.DenoForkContextInfo
+
 	requestId int
 }
+
+type hostWrapper struct {
+	inner  project.ProjectHost
+	server *Server
+}
+
+// CompilerFS implements project.ProjectHost.
+func (h *hostWrapper) CompilerFS() *project.CompilerFS {
+	return h.inner.CompilerFS()
+}
+
+// DefaultLibraryPath implements project.ProjectHost.
+func (h *hostWrapper) DefaultLibraryPath() string {
+	return h.inner.DefaultLibraryPath()
+}
+
+// FS implements project.ProjectHost.
+func (h *hostWrapper) FS() vfs.FS {
+	return h.inner.FS()
+}
+
+// Freeze implements project.ProjectHost.
+func (h *hostWrapper) Freeze(snapshotFS *project.SnapshotFS, configFileRegistry *project.ConfigFileRegistry) {
+	h.inner.Freeze(snapshotFS, configFileRegistry)
+}
+
+// GetCurrentDirectory implements project.ProjectHost.
+func (h *hostWrapper) GetCurrentDirectory() string {
+	return h.inner.GetCurrentDirectory()
+}
+
+// GetResolvedProjectReference implements project.ProjectHost.
+func (h *hostWrapper) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
+	return h.inner.GetResolvedProjectReference(fileName, path)
+}
+
+// GetSourceFile implements project.ProjectHost.
+func (h *hostWrapper) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
+	return h.inner.GetSourceFile(opts)
+}
+
+// MakeResolver implements project.ProjectHost.
+func (h *hostWrapper) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return newResolverWrapper(h.inner.MakeResolver(host, options, typingsLocation, projectName), h.server)
+}
+
+// SeenFiles implements project.ProjectHost.
+func (h *hostWrapper) SeenFiles() *collections.SyncSet[tspath.Path] {
+	return h.inner.SeenFiles()
+}
+
+// Trace implements project.ProjectHost.
+func (h *hostWrapper) Trace(msg *diagnostics.Message, args ...any) {
+	h.inner.Trace(msg, args...)
+}
+
+// UpdateSeenFiles implements project.ProjectHost.
+func (h *hostWrapper) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
+	h.inner.UpdateSeenFiles(seenFiles)
+}
+
+var _ project.ProjectHost = (*hostWrapper)(nil)
+
+func (h *hostWrapper) Builder() *project.ProjectCollectionBuilder {
+	return h.inner.Builder()
+}
+
+func (h *hostWrapper) SessionOptions() *project.SessionOptions {
+	return h.inner.SessionOptions()
+}
+
+// TypesNodeIgnorableNames implements project.ProjectHost.
+func (h *hostWrapper) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return h.server.forkContextInfo
+}
+
+// IsNodeSourceFile implements project.ProjectHost.
+func (h *hostWrapper) IsNodeSourceFile(path tspath.Path) bool {
+	if h.server.CallbackEnabled(CallbackIsNodeSourceFile) {
+		result, err := h.server.call("isNodeSourceFile", path)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res bool
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return res
+		}
+	}
+	return h.inner.IsNodeSourceFile(path)
+}
+
+func newProjectHostWrapper(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree, server *Server) *hostWrapper {
+	inner := project.NewProjectHost(currentDirectory, proj, builder, logger)
+	return &hostWrapper{
+		inner:  inner,
+		server: server,
+	}
+}
+
+type resolverWrapper struct {
+	inner  module.ResolverInterface
+	server *Server
+}
+
+func newResolverWrapper(inner module.ResolverInterface, server *Server) *resolverWrapper {
+	return &resolverWrapper{
+		inner:  inner,
+		server: server,
+	}
+}
+
+type PackageJsonIfApplicable struct {
+	PackageDirectory string `json:"packageDirectory"`
+	DirectoryExists  bool   `json:"directoryExists"`
+	Contents         string `json:"contents"`
+}
+
+// GetPackageScopeForPath implements module.ResolverInterface.
+func (r *resolverWrapper) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
+	if r.server.CallbackEnabled(CallbackGetPackageScopeForPath) {
+		result, err := r.server.call("getPackageScopeForPath", directory)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res *PackageJsonIfApplicable
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			if res == nil {
+				return nil
+			}
+			contents, err := packagejson.Parse([]byte(res.Contents))
+			if err != nil {
+				panic(err)
+			}
+			return &packagejson.InfoCacheEntry{
+				PackageDirectory: res.PackageDirectory,
+				DirectoryExists:  res.DirectoryExists,
+				Contents: &packagejson.PackageJson{
+					Fields: contents,
+				},
+			}
+		}
+	}
+	return r.inner.GetPackageScopeForPath(directory)
+}
+
+// ResolveModuleName implements module.ResolverInterface.
+func (r *resolverWrapper) ResolveModuleName(moduleName string, containingFile string, importAttributeType *string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []module.DiagAndArgs) {
+	if r.server.CallbackEnabled(CallbackResolveModuleName) {
+		result, err := r.server.call("resolveModuleName", map[string]any{
+			"moduleName":          moduleName,
+			"containingFile":      containingFile,
+			"importAttributeType": importAttributeType,
+			"resolutionMode":      resolutionMode,
+			"redirectedReference": redirectedReference,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res module.ResolvedModule
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res, nil
+		}
+	}
+	return r.inner.ResolveModuleName(moduleName, containingFile, importAttributeType, resolutionMode, redirectedReference)
+}
+
+// ResolveModuleName implements module.ResolverInterface.
+func (r *resolverWrapper) ResolvePackageDirectory(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) *module.ResolvedModule {
+	if r.server.CallbackEnabled(CallbackResolveModuleName) {
+		result, err := r.server.call("resolveModuleName", map[string]any{
+			"moduleName":          moduleName,
+			"containingFile":      containingFile,
+			"resolutionMode":      resolutionMode,
+			"redirectedReference": redirectedReference,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res module.ResolvedModule
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res
+		}
+	}
+	return r.inner.ResolvePackageDirectory(moduleName, containingFile, resolutionMode, redirectedReference)
+}
+
+// ResolveTypeReferenceDirective implements module.ResolverInterface.
+func (r *resolverWrapper) ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []module.DiagAndArgs) {
+	if r.server.CallbackEnabled(CallbackResolveTypeReferenceDirective) {
+		result, err := r.server.call("resolveTypeReferenceDirective", map[string]any{
+			"typeReferenceDirectiveName": typeReferenceDirectiveName,
+			"containingFile":             containingFile,
+			"resolutionMode":             resolutionMode,
+			"redirectedReference":        redirectedReference,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res module.ResolvedTypeReferenceDirective
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return &res, nil
+		}
+	}
+	return r.inner.ResolveTypeReferenceDirective(typeReferenceDirectiveName, containingFile, resolutionMode, redirectedReference)
+}
+
+func (r *resolverWrapper) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	if r.server.CallbackEnabled(CallbackGetImpliedNodeFormatForFile) {
+		result, err := r.server.call("getImpliedNodeFormatForFile", map[string]any{
+			"fileName":        path,
+			"packageJsonType": packageJsonType,
+		})
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res core.ModuleKind
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return res
+		}
+	}
+	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
+}
+
+var _ module.ResolverInterface = (*resolverWrapper)(nil)
 
 func NewServer(options *ServerOptions) *Server {
 	if options.Cwd == "" {
@@ -101,7 +362,13 @@ func NewServer(options *ServerOptions) *Server {
 		fs:                 bundled.WrapFS(osvfs.FS()),
 		defaultLibraryPath: options.DefaultLibraryPath,
 	}
-	logger := logging.NewLogger(options.Err)
+
+	var logger logging.Logger
+	if options.LogEnabled {
+		logger = logging.NewLogger(options.Err)
+	} else {
+		logger = NoLogger{}
+	}
 	server.logger = logger
 	server.api = NewAPI(&APIInit{
 		Logger: logger,
@@ -111,6 +378,9 @@ func NewServer(options *ServerOptions) *Server {
 			DefaultLibraryPath: options.DefaultLibraryPath,
 			PositionEncoding:   lsproto.PositionEncodingKindUTF8,
 			LoggingEnabled:     true,
+			MakeHost: func(currentDirectory string, proj *project.Project, builder *project.ProjectCollectionBuilder, logger *logging.LogTree) project.ProjectHost {
+				return newProjectHostWrapper(currentDirectory, proj, builder, logger, server)
+			},
 		},
 	})
 	return server
@@ -254,6 +524,18 @@ func (s *Server) enableCallback(callback string) error {
 		s.enabledCallbacks |= CallbackReadFile
 	case "realpath":
 		s.enabledCallbacks |= CallbackRealpath
+	case "resolveModuleName":
+		s.enabledCallbacks |= CallbackResolveModuleName
+	case "resolveTypeReferenceDirective":
+		s.enabledCallbacks |= CallbackResolveTypeReferenceDirective
+	case "getPackageJsonScopeIfApplicable":
+		s.enabledCallbacks |= CallbackGetPackageJsonScopeIfApplicable
+	case "getPackageScopeForPath":
+		s.enabledCallbacks |= CallbackGetPackageScopeForPath
+	case "getImpliedNodeFormatForFile":
+		s.enabledCallbacks |= CallbackGetImpliedNodeFormatForFile
+	case "isNodeSourceFile":
+		s.enabledCallbacks |= CallbackIsNodeSourceFile
 	default:
 		return fmt.Errorf("unknown callback: %s", callback)
 	}
@@ -287,6 +569,10 @@ func (s *Server) handleConfigure(payload []byte) error {
 		// s.logger.SetFile(params.LogFile)
 	} else {
 		// s.logger.SetFile("")
+	}
+	s.forkContextInfo = ast.DenoForkContextInfo{
+		TypesNodeIgnorableNames: collections.NewSetFromItems(params.Fork.TypesNodeIgnorableNames...),
+		NodeOnlyGlobalNames:     collections.NewSetFromItems(params.Fork.NodeOnlyGlobalNames...),
 	}
 	return nil
 }
@@ -387,6 +673,18 @@ func (s *Server) DirectoryExists(path string) bool {
 	return s.fs.DirectoryExists(path)
 }
 
+func fileURLToPath(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "file" {
+		return "", fmt.Errorf("not a file URL: %s", u.Scheme)
+	}
+	// On Windows, url.Path starts with "/", e.g. /C:/path/to/file
+	return filepath.FromSlash(u.Path), nil
+}
+
 // FileExists implements vfs.FS.
 func (s *Server) FileExists(path string) bool {
 	if s.enabledCallbacks&CallbackFileExists != 0 {
@@ -397,6 +695,13 @@ func (s *Server) FileExists(path string) bool {
 		if len(result) > 0 {
 			return string(result) == "true"
 		}
+	}
+	if strings.HasPrefix(path, "file://") {
+		path, err := fileURLToPath(path)
+		if err != nil {
+			panic(err)
+		}
+		return s.fs.FileExists(path)
 	}
 	return s.fs.FileExists(path)
 }
@@ -429,7 +734,8 @@ func (s *Server) GetAccessibleEntries(path string) vfs.Entries {
 
 // ReadFile implements vfs.FS.
 func (s *Server) ReadFile(path string) (contents string, ok bool) {
-	if s.enabledCallbacks&CallbackReadFile != 0 {
+	if s.enabledCallbacks&CallbackReadFile != 0 && !strings.HasPrefix(path, "bundled://") {
+
 		data, err := s.call("readFile", path)
 		if err != nil {
 			panic(err)
@@ -468,7 +774,7 @@ func (s *Server) Realpath(path string) string {
 
 // UseCaseSensitiveFileNames implements vfs.FS.
 func (s *Server) UseCaseSensitiveFileNames() bool {
-	return s.fs.UseCaseSensitiveFileNames()
+	return true
 }
 
 // WriteFile implements vfs.FS.
@@ -494,4 +800,8 @@ func (s *Server) Remove(path string) error {
 // Chtimes implements vfs.FS.
 func (s *Server) Chtimes(path string, aTime time.Time, mTime time.Time) error {
 	panic("unimplemented")
+}
+
+func (s *Server) CallbackEnabled(callback Callback) bool {
+	return s.enabledCallbacks&callback != 0
 }
