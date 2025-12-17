@@ -35,6 +35,16 @@ type emitHost struct {
 	emitResolver printer.EmitResolver
 }
 
+// TypesNodeIgnorableNames implements EmitHost.
+func (host *emitHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return host.program.GetDenoForkContextInfo()
+}
+
+// IsNodeSourceFile implements EmitHost.
+func (host *emitHost) IsNodeSourceFile(path tspath.Path) bool {
+	return host.program.IsNodeSourceFile(path)
+}
+
 func newEmitHost(ctx context.Context, program *Program, file *ast.SourceFile) (*emitHost, func()) {
 	checker, done := program.GetTypeCheckerForFile(ctx, file)
 	return &emitHost{
@@ -133,6 +143,6 @@ func (host *emitHost) GetSymlinkCache() *symlinks.KnownSymlinks {
 }
 
 func (host *emitHost) ResolveModuleName(moduleName string, containingFile string, resolutionMode core.ResolutionMode) *module.ResolvedModule {
-	resolved, _ := host.program.resolver.ResolveModuleName(moduleName, containingFile, resolutionMode, nil)
+	resolved, _ := host.program.resolver.ResolveModuleName(moduleName, containingFile, nil, resolutionMode, nil)
 	return resolved
 }

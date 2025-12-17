@@ -300,6 +300,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 		s.sessionOptions,
 		session.parseCache,
 		session.extendedConfigCache,
+		session.makeHost,
 	)
 
 	var apiError error
@@ -435,7 +436,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 			// mutations don't happen afterwards. In the future, we might improve things by
 			// separating what it takes to build a program from what it takes to use a program,
 			// and only pass the former into NewProgram instead of retaining it indefinitely.
-			project.host.freeze(snapshotFS, newSnapshot.ConfigFileRegistry)
+			project.host.Freeze(snapshotFS, newSnapshot.ConfigFileRegistry)
 		}
 	}
 	for path, config := range newSnapshot.ConfigFileRegistry.configs {

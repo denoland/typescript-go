@@ -3,7 +3,9 @@ package build
 import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/compiler"
+	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
@@ -28,12 +30,24 @@ func (h *compilerHost) GetCurrentDirectory() string {
 	return h.host.GetCurrentDirectory()
 }
 
+func (h *compilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return h.host.GetDenoForkContextInfo()
+}
+
+func (h *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return h.host.IsNodeSourceFile(path)
+}
+
 func (h *compilerHost) Trace(msg *diagnostics.Message, args ...any) {
 	h.trace(msg, args...)
 }
 
 func (h *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
 	return h.host.GetSourceFile(opts)
+}
+
+func (h *compilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return h.host.MakeResolver(host, options, typingsLocation, projectName)
 }
 
 func (h *compilerHost) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {

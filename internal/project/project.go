@@ -60,7 +60,7 @@ type Project struct {
 	dirty         bool
 	dirtyFilePath tspath.Path
 
-	host                            *compilerHost
+	host                            ProjectHost
 	CommandLine                     *tsoptions.ParsedCommandLine
 	commandLineWithTypingsFiles     *tsoptions.ParsedCommandLine
 	commandLineWithTypingsFilesOnce sync.Once
@@ -331,14 +331,14 @@ func (p *Project) CreateProgram() CreateProgramResult {
 				if file.Path() != p.dirtyFilePath {
 					// UpdateProgram only called host.GetSourceFile for the dirty file.
 					// Increment ref count for all other files.
-					p.host.builder.parseCache.Ref(NewParseCacheKey(file.ParseOptions(), file.Hash, file.ScriptKind))
+					p.host.Builder().parseCache.Ref(NewParseCacheKey(file.ParseOptions(), file.Hash, file.ScriptKind))
 				}
 			}
 		}
 	} else {
 		var typingsLocation string
-		if p.GetTypeAcquisition().Enable.IsTrue() {
-			typingsLocation = p.host.sessionOptions.TypingsLocation
+		if acq := p.GetTypeAcquisition(); acq != nil && acq.Enable.IsTrue() {
+			typingsLocation = p.host.SessionOptions().TypingsLocation
 		}
 		newProgram = compiler.NewProgram(
 			compiler.ProgramOptions{
