@@ -68,6 +68,7 @@ const (
 	CallbackGetAccessibleEntries
 	CallbackReadFile
 	CallbackRealpath
+	CallbackResolveJsxImportSource
 	CallbackResolveModuleName
 	CallbackResolveTypeReferenceDirective
 	CallbackGetPackageJsonScopeIfApplicable
@@ -255,6 +256,24 @@ func (r *resolverWrapper) GetPackageScopeForPath(directory string) *packagejson.
 		}
 	}
 	return r.inner.GetPackageScopeForPath(directory)
+}
+
+// ResolveJsxImportSource implements module.ResolverInterface.
+func (r *resolverWrapper) ResolveJsxImportSource(referrerPath string) string {
+	if r.server.CallbackEnabled(CallbackResolveJsxImportSource) {
+		result, err := r.server.call("resolveJsxImportSource", referrerPath)
+		if err != nil {
+			panic(err)
+		}
+		if len(result) > 0 {
+			var res string
+			if err := json.Unmarshal(result, &res); err != nil {
+				panic(err)
+			}
+			return res
+		}
+	}
+	return r.inner.ResolveJsxImportSource(referrerPath)
 }
 
 // ResolveModuleName implements module.ResolverInterface.
@@ -524,6 +543,8 @@ func (s *Server) enableCallback(callback string) error {
 		s.enabledCallbacks |= CallbackReadFile
 	case "realpath":
 		s.enabledCallbacks |= CallbackRealpath
+	case "resolveJsxImportSource":
+		s.enabledCallbacks |= CallbackResolveJsxImportSource
 	case "resolveModuleName":
 		s.enabledCallbacks |= CallbackResolveModuleName
 	case "resolveTypeReferenceDirective":
