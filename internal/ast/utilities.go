@@ -2657,11 +2657,18 @@ func IsRequireVariableStatement(node *Node) bool {
 	return false
 }
 
-func GetJSXImplicitImportBase(compilerOptions *core.CompilerOptions, file *SourceFile) string {
+func GetJSXImplicitImportBase(compilerOptions *core.CompilerOptions, file *SourceFile, resolveJsxImportSource func(referrer string) string) string {
 	jsxImportSourcePragma := GetPragmaFromSourceFile(file, "jsximportsource")
 	jsxRuntimePragma := GetPragmaFromSourceFile(file, "jsxruntime")
 	if GetPragmaArgument(jsxRuntimePragma, "factory") == "classic" {
 		return ""
+	}
+	// deno: resolve the jsxImportSource based on the referrer
+	if file != nil && resolveJsxImportSource != nil {
+		resolvedJsxImportSource := resolveJsxImportSource(file.FileName())
+		if resolvedJsxImportSource != "" {
+			return resolvedJsxImportSource
+		}
 	}
 	if compilerOptions.Jsx == core.JsxEmitReactJSX ||
 		compilerOptions.Jsx == core.JsxEmitReactJSXDev ||

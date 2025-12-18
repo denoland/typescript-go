@@ -1,4 +1,9 @@
-# Deno Rebase Log
+# Deno Log
+
+### 2025.12.18 / @dsherret
+
+- Added a `resolveJsxImportSource` method to the resolver for resolving the jsxImportSource based on the referrer.
+  - This doesn't support resolving for transforms because we don't use any transform code from TypeScript.
 
 ### 2025.12.16 / @nayeemrmn
 

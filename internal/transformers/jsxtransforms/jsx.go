@@ -211,7 +211,7 @@ func (tx *JSXTransformer) visitSourceFile(file *ast.SourceFile) *ast.Node {
 	}
 
 	tx.currentSourceFile = file
-	tx.importSpecifier = ast.GetJSXImplicitImportBase(tx.compilerOptions, file)
+	tx.importSpecifier = ast.GetJSXImplicitImportBase(tx.compilerOptions, file, nil)
 	tx.filenameDeclaration = nil
 	tx.utilizedImplicitRuntimeImports = make(map[string]map[string]*ast.Node)
 
