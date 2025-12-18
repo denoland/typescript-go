@@ -419,7 +419,7 @@ func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {
 			t.importHelpersImportSpecifier = specifier
 		}
 
-		jsxImport := ast.GetJSXRuntimeImport(ast.GetJSXImplicitImportBase(optionsForFile, file), optionsForFile)
+		jsxImport := ast.GetJSXRuntimeImport(ast.GetJSXImplicitImportBase(optionsForFile, file, p.resolver.ResolveJsxImportSource), optionsForFile)
 		if jsxImport != "" {
 			specifier := p.createSyntheticImport(jsxImport, file)
 			moduleNames = append(moduleNames, specifier)

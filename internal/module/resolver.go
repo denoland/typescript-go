@@ -152,6 +152,7 @@ type ResolverInterface interface {
 	ResolveModuleName(moduleName string, containingFile string, importAttributeType *string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedModule, []DiagAndArgs)
 	ResolvePackageDirectory(moduleName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) *ResolvedModule
 	ResolveTypeReferenceDirective(typeReferenceDirectiveName string, containingFile string, resolutionMode core.ResolutionMode, redirectedReference ResolvedProjectReference) (*ResolvedTypeReferenceDirective, []DiagAndArgs)
+	ResolveJsxImportSource(referrer string) string
 	GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry
 	GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind
 }
@@ -282,6 +283,10 @@ func (r *Resolver) ResolvePackageDirectory(moduleName string, containingFile str
 
 func (r *Resolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
 	return ast.GetImpliedNodeFormatForFile(path, packageJsonType)
+}
+
+func (r *Resolver) ResolveJsxImportSource(referrer string) string {
+	return ""
 }
 
 func (r *Resolver) tryResolveFromTypingsLocation(moduleName string, containingDirectory string, originalResult *ResolvedModule, traceBuilder *tracer) *ResolvedModule {
