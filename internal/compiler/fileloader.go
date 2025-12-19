@@ -112,10 +112,6 @@ func processAllProgramFiles(
 		loader.addRootTask(rootFile, nil, &FileIncludeReason{kind: fileIncludeKindRootFile, data: index})
 	}
 
-	// deno: cause the sub tasks to be loaded which will tell us if there's a @types/node package
-	loader.filesParser.parse(&loader, loader.rootTasks)
-	rootTasksBeforeLibs := len(loader.rootTasks)
-
 	if len(rootFiles) > 0 && compilerOptions.NoLib.IsFalseOrUnknown() {
 		if compilerOptions.Lib == nil {
 			name := tsoptions.GetDefaultLibFileName(compilerOptions)
@@ -137,12 +133,10 @@ func processAllProgramFiles(
 		loader.addAutomaticTypeDirectiveTasks()
 	}
 
-	// deno: now load the lib and type directive tasks
-	loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
-	loader.filesParser.parse(&loader, loader.rootTasks[rootTasksBeforeLibs:])
+	loader.filesParser.parse(&loader, loader.rootTasks)
 
 	// deno: now load the built-in node types if they were previously attempted
-	// to be loaded and there's no @types/node package
+	// to be loaded and there's no @types/node package found in the loader
 	if loader.foundNodeTypes.Load() && !loader.hasTypesNodePackage() {
 		loader.shouldLoadNodeTypes.Store(true)
 		libFile := loader.pathForLibFile("lib.node.d.ts")
