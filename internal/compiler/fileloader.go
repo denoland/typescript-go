@@ -49,6 +49,10 @@ type fileLoader struct {
 
 	pathForLibFileCache       collections.SyncMap[string, *LibFile]
 	pathForLibFileResolutions collections.SyncMap[tspath.Path, *libResolution]
+
+	// deno: flags for lib.node.d.ts handling
+	shouldLoadNodeTypes atomic.Bool
+	foundNodeTypes      atomic.Bool
 }
 
 type processedFiles struct {
@@ -127,6 +131,21 @@ func processAllProgramFiles(
 				// !!! error on unknown name
 			}
 		}
+	}
+
+	// deno: now load the built-in node types if they were previously attempted
+	// to be loaded and there's no @types/node package
+	if loader.foundNodeTypes.Load() && !loader.hasTypesNodePackage() {
+		loader.shouldLoadNodeTypes.Store(true)
+		libFile := loader.pathForLibFile("lib.node.d.ts")
+		// Remove the existing task data entirely so it will be reprocessed fresh
+		// This includes all subtasks that might have been skipped
+		loader.filesParser.taskDataByPath.Delete(loader.toPath(libFile.path))
+		libIndex := 0
+		if compilerOptions.Lib != nil {
+			libIndex = len(compilerOptions.Lib)
+		}
+		loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: libIndex})
 	}
 
 	if len(rootFiles) > 0 {
