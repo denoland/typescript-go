@@ -122,10 +122,6 @@ func processAllProgramFiles(
 			for index, lib := range compilerOptions.Lib {
 				if name, ok := tsoptions.GetLibFileName(lib); ok {
 					libFile := loader.pathForLibFile(name)
-					// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
-					if libFile.Name == "lib.node.d.ts" && loader.hasTypesNodePackage() {
-						continue
-					}
 					loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: index})
 				}
 				// !!! error on unknown name

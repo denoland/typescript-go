@@ -63,6 +63,11 @@ func (t *parseTask) load(loader *fileLoader) {
 		return
 	}
 
+	// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
+	if t.normalizedFilePath == "asset:///lib.node.d.ts" && loader.hasTypesNodePackage() {
+		return
+	}
+
 	if tspath.HasExtension(t.normalizedFilePath) {
 		compilerOptions := loader.opts.Config.CompilerOptions()
 		allowNonTsExtensions := compilerOptions.AllowNonTsExtensions.IsTrue()
