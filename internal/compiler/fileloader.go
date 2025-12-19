@@ -133,6 +133,14 @@ func processAllProgramFiles(
 		}
 	}
 
+	if len(rootFiles) > 0 {
+		loader.addAutomaticTypeDirectiveTasks()
+	}
+
+	// deno: now load the lib and type directive tasks
+	loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
+	loader.filesParser.parse(&loader, loader.rootTasks[rootTasksBeforeLibs:])
+
 	// deno: now load the built-in node types if they were previously attempted
 	// to be loaded and there's no @types/node package
 	if loader.foundNodeTypes.Load() && !loader.hasTypesNodePackage() {
@@ -146,15 +154,11 @@ func processAllProgramFiles(
 			libIndex = len(compilerOptions.Lib)
 		}
 		loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: libIndex})
-	}
 
-	if len(rootFiles) > 0 {
-		loader.addAutomaticTypeDirectiveTasks()
+		// parse and load only the newly added lib.node.d.ts task
+		loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
+		loader.filesParser.parse(&loader, loader.rootTasks[len(loader.rootTasks)-1:])
 	}
-
-	// deno: now load the lib and type directive tasks
-	loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
-	loader.filesParser.parse(&loader, loader.rootTasks[rootTasksBeforeLibs:])
 
 	// Clear out loader and host to ensure its not used post program creation
 	loader.projectReferenceFileMapper.loader = nil
