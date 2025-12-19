@@ -49,6 +49,10 @@ type fileLoader struct {
 
 	pathForLibFileCache       collections.SyncMap[string, *LibFile]
 	pathForLibFileResolutions collections.SyncMap[tspath.Path, *libResolution]
+
+	// deno: flags for lib.node.d.ts handling
+	shouldLoadNodeTypes atomic.Bool
+	foundNodeTypes      atomic.Bool
 }
 
 type processedFiles struct {
@@ -108,10 +112,6 @@ func processAllProgramFiles(
 		loader.addRootTask(rootFile, nil, &FileIncludeReason{kind: fileIncludeKindRootFile, data: index})
 	}
 
-	// deno: cause the sub tasks to be loaded which will tell us if there's a @types/node package
-	loader.filesParser.parse(&loader, loader.rootTasks)
-	rootTasksBeforeLibs := len(loader.rootTasks)
-
 	if len(rootFiles) > 0 && compilerOptions.NoLib.IsFalseOrUnknown() {
 		if compilerOptions.Lib == nil {
 			name := tsoptions.GetDefaultLibFileName(compilerOptions)
@@ -122,10 +122,6 @@ func processAllProgramFiles(
 			for index, lib := range compilerOptions.Lib {
 				if name, ok := tsoptions.GetLibFileName(lib); ok {
 					libFile := loader.pathForLibFile(name)
-					// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
-					if libFile.Name == "lib.node.d.ts" && loader.hasTypesNodePackage() {
-						continue
-					}
 					loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: index})
 				}
 				// !!! error on unknown name
@@ -137,9 +133,26 @@ func processAllProgramFiles(
 		loader.addAutomaticTypeDirectiveTasks()
 	}
 
-	// deno: now load the lib and type directive tasks
-	loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
-	loader.filesParser.parse(&loader, loader.rootTasks[rootTasksBeforeLibs:])
+	loader.filesParser.parse(&loader, loader.rootTasks)
+
+	// deno: now load the built-in node types if they were previously attempted
+	// to be loaded and there's no @types/node package found in the loader
+	if loader.foundNodeTypes.Load() && !loader.hasTypesNodePackage() {
+		loader.shouldLoadNodeTypes.Store(true)
+		libFile := loader.pathForLibFile("lib.node.d.ts")
+		// Remove the existing task data entirely so it will be reprocessed fresh
+		// This includes all subtasks that might have been skipped
+		loader.filesParser.taskDataByPath.Delete(loader.toPath(libFile.path))
+		libIndex := 0
+		if compilerOptions.Lib != nil {
+			libIndex = len(compilerOptions.Lib)
+		}
+		loader.addRootTask(libFile.path, libFile, &FileIncludeReason{kind: fileIncludeKindLibFile, data: libIndex})
+
+		// parse and load only the newly added lib.node.d.ts task
+		loader.filesParser.wg = core.NewWorkGroup(singleThreaded)
+		loader.filesParser.parse(&loader, loader.rootTasks[len(loader.rootTasks)-1:])
+	}
 
 	// Clear out loader and host to ensure its not used post program creation
 	loader.projectReferenceFileMapper.loader = nil

@@ -1,5 +1,10 @@
 # Deno Log
 
+### 2025.12.19 / @dsherret
+
+- Improved automatic lib.node.d.ts injection by deferring `/// <reference lib="node" />` from being injected.
+  - This now waits until after everything has loaded in order to decide whether to inject.
+
 ### 2025.12.18 / @dsherret
 
 - Added a `resolveJsxImportSource` method to the resolver for resolving the jsxImportSource based on the referrer.
