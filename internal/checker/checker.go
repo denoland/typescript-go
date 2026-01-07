@@ -15809,7 +15809,9 @@ func (c *Checker) getExportsOfModuleWorker(moduleSymbol *ast.Symbol) (exports as
 			for _, node := range exportStars.Declarations {
 				resolvedModule := c.resolveExternalModuleName(node, node.ModuleSpecifier(), false /*ignoreErrors*/)
 				exportedSymbols := visit(resolvedModule, node, isTypeOnly || node.IsTypeOnly())
-				c.extendExportSymbols(nestedSymbols, exportedSymbols, lookupTable, node)
+				if exportedSymbols != nil {
+					c.extendExportSymbols(nestedSymbols, exportedSymbols, lookupTable, node)
+				}
 			}
 			for id, s := range lookupTable {
 				// It's not an error if the file with multiple `export *`s with duplicate names exports a member with that name itself
