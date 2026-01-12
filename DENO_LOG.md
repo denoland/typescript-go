@@ -1,5 +1,24 @@
 # Deno Log
 
+### 2026.01.12 / @bartlomieju
+
+Changes to the rebase process to avoid squashing all our changes into a single commit.
+
+- `git checkout rebase/2026-01-12`
+  - We're at `6e1e2c29067d9dfe638301be2d6409e788df47b1` from `Microsoft/typescript-go`
+- `git pull <denoland-remote> rebase/2025-12-16`
+- `git checkout 6e1e2c29067d9dfe638301be2d6409e788df47b1`
+- `git checkout -b rebase/YYYY-MM-DD`
+  - We're now up to date with `Microsoft/typescript-go` main branch.
+- Cherry-pick commits from `rebase/2025-12-16` one by one:
+  - `git cherry-pick <commit-hash>`
+  - Alternatively all in the same go: `git cherry-pick 07d4196df 158136cda 9b3df7abd d44b7a632 <other-commits>`
+  - Resolve conflicts if any.
+  - `git add .`
+  - `git cherry-pick --continue`
+- `git push -u <denoland-remote> rebase/YYYY-MM-DD`
+- Change pushed branch to be the default working branch in `denoland/typescript-go` repo.
+
 ### 2025.12.19 / @dsherret
 
 - Improved automatic lib.node.d.ts injection by deferring `/// <reference lib="node" />` from being injected.
