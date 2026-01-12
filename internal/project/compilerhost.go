@@ -1,7 +1,10 @@
 package project
 
 import (
+	"time"
+
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
@@ -20,6 +23,7 @@ type ProjectHost interface {
 	UpdateSeenFiles(*collections.SyncSet[tspath.Path])
 	Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry)
 	CompilerFS() *CompilerFS
+	SourceFS() *SourceFS
 }
 
 var (
@@ -32,7 +36,7 @@ type compilerHost struct {
 	currentDirectory string
 	sessionOptions   *SessionOptions
 
-	fs                 *snapshotFSBuilder
+	sourceFS           *SourceFS
 	compilerFS         *CompilerFS
 	configFileRegistry *ConfigFileRegistry
 
@@ -62,6 +66,11 @@ func (c *builderFileSource) GetFile(fileName string) FileHandle {
 	return c.snapshotFSBuilder.GetFileByPath(fileName, path)
 }
 
+func (c *builderFileSource) GetFileByPath(fileName string, path tspath.Path) FileHandle {
+	c.seenFiles.Add(path)
+	return c.snapshotFSBuilder.GetFileByPath(fileName, path)
+}
+
 func (c *builderFileSource) FS() vfs.FS {
 	return c.snapshotFSBuilder.FS()
 }
@@ -85,7 +94,8 @@ func NewProjectHost(
 		currentDirectory: currentDirectory,
 		sessionOptions:   builder.sessionOptions,
 
-		sourceFS: newSourceFS(true, builder.fs, builder.toPath),
+		sourceFS:   newSourceFS(true, builder.fs, builder.toPath),
+		compilerFS: compilerFS,
 
 		project: project,
 		builder: builder,
@@ -235,11 +245,11 @@ func (c *compilerHost) SessionOptions() *SessionOptions {
 }
 
 func (c *compilerHost) SeenFiles() *collections.SyncSet[tspath.Path] {
-	return c.seenFiles
+	return c.sourceFS.seenFiles
 }
 
 func (c *compilerHost) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
-	c.seenFiles = seenFiles
+	c.sourceFS.seenFiles = seenFiles
 }
 
 func (c *compilerHost) Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry) {
@@ -248,4 +258,8 @@ func (c *compilerHost) Freeze(snapshotFS *SnapshotFS, configFileRegistry *Config
 
 func (c *compilerHost) CompilerFS() *CompilerFS {
 	return c.compilerFS
+}
+
+func (c *compilerHost) SourceFS() *SourceFS {
+	return c.sourceFS
 }

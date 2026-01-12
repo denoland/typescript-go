@@ -59,7 +59,7 @@ func (a *autoImportBuilderFS) GetFileByPath(fileName string, path tspath.Path) F
 type autoImportRegistryCloneHost struct {
 	projectCollection *ProjectCollection
 	parseCache        *ParseCache
-	fs                *sourceFS
+	fs                *SourceFS
 	currentDirectory  string
 
 	filesMu sync.Mutex

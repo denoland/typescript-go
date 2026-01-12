@@ -990,7 +990,7 @@ func (b *ProjectCollectionBuilder) updateProgram(entry dirty.Value[*Project], lo
 				project.ProgramUpdateKind = result.UpdateKind
 				project.ProgramLastUpdate = b.newSnapshotID
 				if result.UpdateKind == ProgramUpdateKindCloned {
-					project.host.sourceFS.seenFiles = oldHost.sourceFS.seenFiles
+				project.host.SourceFS().seenFiles = oldHost.SourceFS().seenFiles
 				}
 				if result.UpdateKind == ProgramUpdateKindNewFiles {
 					filesChanged = true

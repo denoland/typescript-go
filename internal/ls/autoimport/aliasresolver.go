@@ -108,12 +108,16 @@ func (r *aliasResolver) GetModeForUsageLocation(file ast.HasFileName, moduleSpec
 }
 
 // GetResolvedModule implements checker.Program.
-func (r *aliasResolver) GetResolvedModule(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode) *module.ResolvedModule {
+func (r *aliasResolver) GetResolvedModule(currentSourceFile ast.HasFileName, moduleReference string, mode core.ResolutionMode, importAttributeType string) *module.ResolvedModule {
 	cache, _ := r.resolvedModules.LoadOrStore(currentSourceFile.Path(), &collections.SyncMap[module.ModeAwareCacheKey, *module.ResolvedModule]{})
 	if resolved, ok := cache.Load(module.ModeAwareCacheKey{Name: moduleReference, Mode: mode}); ok {
 		return resolved
 	}
-	resolved, _ := r.moduleResolver.ResolveModuleName(moduleReference, currentSourceFile.FileName(), mode, nil)
+	var attrPtr *string
+	if importAttributeType != "" {
+		attrPtr = &importAttributeType
+	}
+	resolved, _ := r.moduleResolver.ResolveModuleName(moduleReference, currentSourceFile.FileName(), attrPtr, mode, nil)
 	resolved, _ = cache.LoadOrStore(module.ModeAwareCacheKey{Name: moduleReference, Mode: mode}, resolved)
 	if !resolved.IsResolved() && !tspath.PathIsRelative(moduleReference) {
 		r.onFailedAmbientModuleLookup(currentSourceFile, moduleReference)
@@ -222,6 +226,21 @@ func (r *aliasResolver) IsSourceFromProjectReference(path tspath.Path) bool {
 // SourceFileMayBeEmitted implements checker.Program.
 func (r *aliasResolver) SourceFileMayBeEmitted(sourceFile *ast.SourceFile, forceDtsEmit bool) bool {
 	panic("unimplemented")
+}
+
+// GetDenoForkContextInfo implements Host.
+func (r *aliasResolver) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return ast.DenoForkContextInfo{}
+}
+
+// GetModuleLiteralImportAttributeType implements Program.
+func (r *aliasResolver) GetModuleLiteralImportAttributeType(node *ast.StringLiteralLike) string {
+	return ""
+}
+
+// IsNodeSourceFile implements Host.
+func (r *aliasResolver) IsNodeSourceFile(path tspath.Path) bool {
+	return false
 }
 
 var _ checker.Program = (*aliasResolver)(nil)
