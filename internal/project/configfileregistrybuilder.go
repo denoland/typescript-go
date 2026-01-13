@@ -24,7 +24,7 @@ var (
 // configFileRegistry, producing a new clone with `finalize()` after
 // all changes have been made.
 type configFileRegistryBuilder struct {
-	fs                  *sourceFS
+	fs                  *SourceFS
 	isOpenFile          func(tspath.Path) bool
 	extendedConfigCache *ExtendedConfigCache
 	sessionOptions      *SessionOptions

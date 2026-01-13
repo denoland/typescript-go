@@ -356,7 +356,7 @@ func (s *Snapshot) Clone(ctx context.Context, change SnapshotChange, overlays ma
 			removedFiles := 0
 			fs.diskFiles.Range(func(entry *dirty.SyncMapEntry[tspath.Path, *diskFile]) bool {
 				for _, project := range projectCollection.Projects() {
-					if project.host != nil && project.host.SeenFiles().Has(entry.Key()) {
+					if project.host != nil && project.host.SourceFS().Seen(entry.Key()) {
 						return true
 					}
 				}

@@ -178,6 +178,11 @@ func (h *hostWrapper) SessionOptions() *project.SessionOptions {
 	return h.inner.SessionOptions()
 }
 
+// SourceFS implements project.ProjectHost.
+func (h *hostWrapper) SourceFS() *project.SourceFS {
+	return h.inner.SourceFS()
+}
+
 // TypesNodeIgnorableNames implements project.ProjectHost.
 func (h *hostWrapper) GetDenoForkContextInfo() ast.DenoForkContextInfo {
 	return h.server.forkContextInfo

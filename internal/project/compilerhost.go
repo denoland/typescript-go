@@ -23,6 +23,7 @@ type ProjectHost interface {
 	UpdateSeenFiles(*collections.SyncSet[tspath.Path])
 	Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry)
 	CompilerFS() *CompilerFS
+	SourceFS() *SourceFS
 }
 
 var (
@@ -35,8 +36,7 @@ type compilerHost struct {
 	currentDirectory string
 	sessionOptions   *SessionOptions
 
-	seenFiles          *collections.SyncSet[tspath.Path]
-	fs                 *snapshotFSBuilder
+	sourceFS           *SourceFS
 	compilerFS         *CompilerFS
 	configFileRegistry *ConfigFileRegistry
 
@@ -62,6 +62,11 @@ type builderFileSource struct {
 
 func (c *builderFileSource) GetFile(fileName string) FileHandle {
 	path := c.snapshotFSBuilder.toPath(fileName)
+	c.seenFiles.Add(path)
+	return c.snapshotFSBuilder.GetFileByPath(fileName, path)
+}
+
+func (c *builderFileSource) GetFileByPath(fileName string, path tspath.Path) FileHandle {
 	c.seenFiles.Add(path)
 	return c.snapshotFSBuilder.GetFileByPath(fileName, path)
 }
@@ -92,9 +97,9 @@ func NewProjectHost(
 		configFilePath:   project.configFilePath,
 		currentDirectory: currentDirectory,
 		sessionOptions:   builder.sessionOptions,
-		seenFiles:        seenFiles,
-		fs:               builder.fs,
-		compilerFS:       compilerFS,
+
+		sourceFS:   newSourceFS(true, builder.fs, builder.toPath),
+		compilerFS: compilerFS,
 
 		project: project,
 		builder: builder,
@@ -108,6 +113,8 @@ func (c *compilerHost) freeze(snapshotFS *SnapshotFS, configFileRegistry *Config
 	if c.builder == nil {
 		panic("freeze can only be called once")
 	}
+	c.sourceFS.source = snapshotFS
+	c.sourceFS.DisableTracking()
 	c.configFileRegistry = configFileRegistry
 	c.builder = nil
 	c.project = nil
@@ -127,7 +134,7 @@ func (c *compilerHost) DefaultLibraryPath() string {
 
 // FS implements compiler.CompilerHost.
 func (c *compilerHost) FS() vfs.FS {
-	return c.fs
+	return c.sourceFS
 }
 
 // GetCurrentDirectory implements compiler.CompilerHost.
@@ -140,8 +147,8 @@ func (c *compilerHost) GetResolvedProjectReference(fileName string, path tspath.
 	if c.builder == nil {
 		return c.configFileRegistry.GetConfig(path)
 	} else {
-		// acquireConfigForProject will bypass the FS, so track the file here.
-		c.seenFiles.Add(c.fs.toPath(fileName))
+		// acquireConfigForProject will bypass sourceFS, so track the file here.
+		c.sourceFS.Track(fileName)
 		return c.builder.configFileRegistryBuilder.acquireConfigForProject(fileName, path, c.project, c.logger)
 	}
 }
@@ -150,7 +157,7 @@ func (c *compilerHost) GetResolvedProjectReference(fileName string, path tspath.
 // ref counting is handled at the snapshot level after program construction.
 func (c *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
 	c.ensureAlive()
-	if fh := c.fs.GetFileByPath(opts.FileName, opts.Path); fh != nil {
+	if fh := c.sourceFS.GetFileByPath(opts.FileName, opts.Path); fh != nil {
 		return c.builder.parseCache.Load(NewParseCacheKey(opts, fh.Hash(), fh.Kind()), fh)
 	}
 	return nil
@@ -241,11 +248,11 @@ func (c *compilerHost) SessionOptions() *SessionOptions {
 }
 
 func (c *compilerHost) SeenFiles() *collections.SyncSet[tspath.Path] {
-	return c.seenFiles
+	return c.sourceFS.seenFiles
 }
 
 func (c *compilerHost) UpdateSeenFiles(seenFiles *collections.SyncSet[tspath.Path]) {
-	c.seenFiles = seenFiles
+	c.sourceFS.seenFiles = seenFiles
 }
 
 func (c *compilerHost) Freeze(snapshotFS *SnapshotFS, configFileRegistry *ConfigFileRegistry) {
@@ -254,4 +261,8 @@ func (c *compilerHost) Freeze(snapshotFS *SnapshotFS, configFileRegistry *Config
 
 func (c *compilerHost) CompilerFS() *CompilerFS {
 	return c.compilerFS
+}
+
+func (c *compilerHost) SourceFS() *SourceFS {
+	return c.sourceFS
 }
