@@ -296,16 +296,16 @@ func (fs *SourceFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 }
 
 // WriteFile implements vfs.FS.
-func (fs *sourceFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+func (fs *SourceFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
 	panic("unimplemented")
 }
 
 // Remove implements vfs.FS.
-func (fs *sourceFS) Remove(path string) error {
+func (fs *SourceFS) Remove(path string) error {
 	panic("unimplemented")
 }
 
 // Chtimes implements vfs.FS.
-func (fs *sourceFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
+func (fs *SourceFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
 	panic("unimplemented")
 }
