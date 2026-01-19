@@ -40,6 +40,10 @@ jobs:
             goarch: amd64
             archive_suffix: windows-x64
             binary_name: tsgo.exe
+          - goos: windows
+            goarch: arm64
+            archive_suffix: windows-arm64
+            binary_name: tsgo.exe
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
