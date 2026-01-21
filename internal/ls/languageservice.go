@@ -112,3 +112,7 @@ func (l *LanguageService) getCurrentAutoImportView(fromFile *ast.SourceFile) *au
 		l.UserPreferences().ModuleSpecifierPreferences(),
 	)
 }
+
+func (l *LanguageService) GetProjectPath() tspath.Path {
+	return l.projectPath
+}

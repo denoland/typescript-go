@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
+	"github.com/microsoft/typescript-go/internal/core"
 )
 
 // Meta model version 3.17.0
@@ -23266,6 +23267,16 @@ func unmarshalParams(method Method, data []byte) (any, error) {
 		return unmarshalPtrTo[CancelParams](data)
 	case MethodProgress:
 		return unmarshalPtrTo[ProgressParams](data)
+	case MethodDenoDidOpen:
+		return unmarshalPtrTo[DenoDidOpenParams](data)
+	case MethodDenoDidChange:
+		return unmarshalPtrTo[DenoDidChangeParams](data)
+	case MethodDenoDidClose:
+		return unmarshalPtrTo[DenoDidCloseParams](data)
+	case MethodDenoDidChangeConfiguration:
+		return unmarshalPtrTo[DenoDidChangeConfigurationParams](data)
+	case MethodDenoLanguageServiceMethod:
+		return unmarshalPtrTo[DenoLanguageServiceMethodParams](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23411,6 +23422,18 @@ func unmarshalResult(method Method, data []byte) (any, error) {
 		return unmarshalValue[ExecuteCommandResponse](data)
 	case MethodWorkspaceApplyEdit:
 		return unmarshalValue[ApplyWorkspaceEditResponse](data)
+	case MethodDenoHostUseCaseSensitiveFileNames:
+		return unmarshalValue[DenoHostUseCaseSensitiveFileNamesResponse](data)
+	case MethodDenoHostReadFile:
+		return unmarshalValue[DenoHostReadFileResponse](data)
+	case MethodDenoHostGetLineMap:
+		return unmarshalValue[DenoHostGetLineMapResponse](data)
+	case MethodDenoHostUserPreferences:
+		return unmarshalValue[DenoHostUserPreferencesResponse](data)
+	case MethodDenoHostFormatOptions:
+		return unmarshalValue[DenoHostFormatOptionsResponse](data)
+	case MethodDenoHostGetECMALineInfo:
+		return unmarshalValue[DenoHostGetECMALineInfoResponse](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23805,6 +23828,19 @@ const (
 	MethodLogTrace                       Method = "$/logTrace"
 	MethodCancelRequest                  Method = "$/cancelRequest"
 	MethodProgress                       Method = "$/progress"
+	MethodDenoDidOpen                    Method = "deno/didOpen"
+	MethodDenoDidChange                  Method = "deno/didChange"
+	MethodDenoDidClose                   Method = "deno/didClose"
+	MethodDenoDidChangeConfiguration     Method = "deno/didChangeConfiguration"
+	MethodDenoLanguageServiceMethod      Method = "deno/languageServiceMethod"
+
+	// Deno Host methods - requests sent TO the client
+	MethodDenoHostUseCaseSensitiveFileNames Method = "deno/host/useCaseSensitiveFileNames"
+	MethodDenoHostReadFile                  Method = "deno/host/readFile"
+	MethodDenoHostGetLineMap                Method = "deno/host/getLineMap"
+	MethodDenoHostUserPreferences           Method = "deno/host/userPreferences"
+	MethodDenoHostFormatOptions             Method = "deno/host/formatOptions"
+	MethodDenoHostGetECMALineInfo           Method = "deno/host/getECMALineInfo"
 )
 
 // Request response types
@@ -24300,6 +24336,116 @@ var CancelRequestInfo = NotificationInfo[*CancelParams]{Method: MethodCancelRequ
 
 // Type mapping info for `$/progress`
 var ProgressInfo = NotificationInfo[*ProgressParams]{Method: MethodProgress}
+
+// Deno types
+
+type DenoDidOpenParams struct {
+	Uri DocumentUri `json:"uri"`
+}
+
+var DenoDidOpenInfo = RequestInfo[DenoDidOpenParams, any]{Method: MethodDenoDidOpen}
+
+type DenoDidChangeParams struct {
+	Uri DocumentUri `json:"uri"`
+}
+
+var DenoDidChangeInfo = RequestInfo[DenoDidChangeParams, any]{Method: MethodDenoDidChange}
+
+type DenoDidCloseParams struct {
+	Uri DocumentUri `json:"uri"`
+}
+
+var DenoDidCloseInfo = RequestInfo[DenoDidCloseParams, any]{Method: MethodDenoDidClose}
+
+type DenoProjectConfig struct {
+	CompilerOptions    *core.CompilerOptions `json:"compilerOptions"`
+	FileNames          []string              `json:"fileNames"`
+	CompilerOptionsKey string                `json:"compilerOptionsKey"`
+	NotebookUri        *string               `json:"notebookUri"`
+}
+
+type DenoDidChangeConfigurationParams struct {
+	ByCompilerOptionsKey map[string]*DenoProjectConfig `json:"byCompilerOptionsKey"`
+	// Key: Uri, Value: Key for the above from whom to inherit the compiler options.
+	ByNotebookUri map[string]*DenoProjectConfig `json:"byNotebookUri"`
+}
+
+var DenoDidChangeConfigurationInfo = RequestInfo[DenoDidChangeConfigurationParams, any]{Method: MethodDenoDidChangeConfiguration}
+
+type DenoLanguageServiceMethodParams struct {
+	Method             string   `json:"method"`
+	Args               []string `json:"args"`
+	CompilerOptionsKey string   `json:"compilerOptionsKey"`
+	NotebookUri        *string  `json:"notebookUri"`
+}
+
+var DenoLanguageServiceMethodInfo = RequestInfo[DenoLanguageServiceMethodParams, any]{Method: MethodDenoLanguageServiceMethod}
+
+// Deno Host request types - these are requests sent TO the client
+
+type DenoHostBaseParams struct {
+	CompilerOptionsKey string  `json:"compilerOptionsKey"`
+	NotebookUri        *string `json:"notebookUri,omitempty"`
+}
+
+// UseCaseSensitiveFileNames
+type DenoHostUseCaseSensitiveFileNamesParams struct {
+	DenoHostBaseParams
+}
+
+type DenoHostUseCaseSensitiveFileNamesResponse struct {
+	UseCaseSensitiveFileNames bool `json:"useCaseSensitiveFileNames"`
+}
+
+// ReadFile
+type DenoHostReadFileParams struct {
+	DenoHostBaseParams
+	Path string `json:"path"`
+}
+
+type DenoHostReadFileResponse struct {
+	Contents *string `json:"contents"` // nil if file not found
+}
+
+// GetLineMap (for Converters)
+type DenoHostGetLineMapParams struct {
+	DenoHostBaseParams
+	FileName string `json:"fileName"`
+}
+
+type DenoHostGetLineMapResponse struct {
+	LineStarts []int `json:"lineStarts"`
+	AsciiOnly  bool  `json:"asciiOnly"`
+}
+
+// UserPreferences
+type DenoHostUserPreferencesParams struct {
+	DenoHostBaseParams
+}
+
+type DenoHostUserPreferencesResponse struct {
+	Preferences map[string]any `json:"preferences"`
+}
+
+// FormatOptions
+type DenoHostFormatOptionsParams struct {
+	DenoHostBaseParams
+}
+
+type DenoHostFormatOptionsResponse struct {
+	Options map[string]any `json:"options"`
+}
+
+// GetECMALineInfo
+type DenoHostGetECMALineInfoParams struct {
+	DenoHostBaseParams
+	FileName string `json:"fileName"`
+}
+
+type DenoHostGetECMALineInfoResponse struct {
+	Text       string `json:"text"`
+	LineStarts []int  `json:"lineStarts"`
+}
 
 // Union types
 
