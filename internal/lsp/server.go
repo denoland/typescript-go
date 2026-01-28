@@ -1204,6 +1204,10 @@ func (s *Server) handleDenoLanguageServiceMethod(ctx context.Context, params lsp
 		var p0 lsproto.DocumentUri
 		json.Unmarshal([]byte(params.Args[0]), &p0)
 		return ls.ProvideCodeLenses(ctx, p0)
+	case "ProvideDocumentSymbols":
+		var p0 lsproto.DocumentUri
+		json.Unmarshal([]byte(params.Args[0]), &p0)
+		return ls.ProvideDocumentSymbols(ctx, p0)
 	case "ProvideHover":
 		var p0 lsproto.DocumentUri
 		json.Unmarshal([]byte(params.Args[0]), &p0)
