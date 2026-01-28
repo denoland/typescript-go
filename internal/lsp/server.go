@@ -1247,9 +1247,7 @@ func (s *Server) handleDenoLanguageServiceMethod(ctx context.Context, params lsp
 	case "ResolveCompletionItem":
 		var p0 lsproto.CompletionItem
 		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.CompletionItemData
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ResolveCompletionItem(ctx, &p0, &p1)
+		return ls.ResolveCompletionItem(ctx, &p0, p0.Data)
 	case "ProvideImplementations":
 		var p0 lsproto.ImplementationParams
 		json.Unmarshal([]byte(params.Args[0]), &p0)
