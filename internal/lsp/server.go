@@ -170,7 +170,7 @@ func NewDenoLanguageServiceHost(vfs *DenoVFS) *DenoLanguageServiceHost {
 }
 
 func (h *DenoLanguageServiceHost) UseCaseSensitiveFileNames() bool {
-	return h.vfs.UseCaseSensitiveFileNames()
+	return true
 }
 
 func (h *DenoLanguageServiceHost) ReadFile(path string) (contents string, ok bool) {
@@ -279,15 +279,7 @@ func (v *DenoVFS) baseParams() lsproto.DenoHostBaseParams {
 }
 
 func (v *DenoVFS) UseCaseSensitiveFileNames() bool {
-	params := lsproto.DenoHostUseCaseSensitiveFileNamesParams{
-		DenoHostBaseParams: v.baseParams(),
-	}
-	var response lsproto.DenoHostUseCaseSensitiveFileNamesResponse
-	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoHostUseCaseSensitiveFileNames, params, &response)
-	if err != nil {
-		return false // default to case-insensitive on error
-	}
-	return response.UseCaseSensitiveFileNames
+	return true
 }
 
 func (v *DenoVFS) FileExists(path string) bool {

@@ -23422,8 +23422,6 @@ func unmarshalResult(method Method, data []byte) (any, error) {
 		return unmarshalValue[ExecuteCommandResponse](data)
 	case MethodWorkspaceApplyEdit:
 		return unmarshalValue[ApplyWorkspaceEditResponse](data)
-	case MethodDenoHostUseCaseSensitiveFileNames:
-		return unmarshalValue[DenoHostUseCaseSensitiveFileNamesResponse](data)
 	case MethodDenoHostReadFile:
 		return unmarshalValue[DenoHostReadFileResponse](data)
 	case MethodDenoHostGetLineMap:
@@ -23835,12 +23833,11 @@ const (
 	MethodDenoLanguageServiceMethod      Method = "deno/languageServiceMethod"
 
 	// Deno Host methods - requests sent TO the client
-	MethodDenoHostUseCaseSensitiveFileNames Method = "deno/host/useCaseSensitiveFileNames"
-	MethodDenoHostReadFile                  Method = "deno/host/readFile"
-	MethodDenoHostGetLineMap                Method = "deno/host/getLineMap"
-	MethodDenoHostUserPreferences           Method = "deno/host/userPreferences"
-	MethodDenoHostFormatOptions             Method = "deno/host/formatOptions"
-	MethodDenoHostGetECMALineInfo           Method = "deno/host/getECMALineInfo"
+	MethodDenoHostReadFile        Method = "deno/host/readFile"
+	MethodDenoHostGetLineMap      Method = "deno/host/getLineMap"
+	MethodDenoHostUserPreferences Method = "deno/host/userPreferences"
+	MethodDenoHostFormatOptions   Method = "deno/host/formatOptions"
+	MethodDenoHostGetECMALineInfo Method = "deno/host/getECMALineInfo"
 )
 
 // Request response types
@@ -24386,15 +24383,6 @@ var DenoLanguageServiceMethodInfo = RequestInfo[DenoLanguageServiceMethodParams,
 type DenoHostBaseParams struct {
 	CompilerOptionsKey string  `json:"compilerOptionsKey"`
 	NotebookUri        *string `json:"notebookUri,omitempty"`
-}
-
-// UseCaseSensitiveFileNames
-type DenoHostUseCaseSensitiveFileNamesParams struct {
-	DenoHostBaseParams
-}
-
-type DenoHostUseCaseSensitiveFileNamesResponse struct {
-	UseCaseSensitiveFileNames bool `json:"useCaseSensitiveFileNames"`
 }
 
 // ReadFile
