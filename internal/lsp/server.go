@@ -806,8 +806,7 @@ var handlers = sync.OnceValue(func() handlerMap {
 	registerRequestHandler(handlers, lsproto.CompletionItemResolveInfo, (*Server).handleCompletionItemResolve)
 	registerRequestHandler(handlers, lsproto.CodeLensResolveInfo, (*Server).handleCodeLensResolve)
 
-	registerRequestHandler(handlers, lsproto.DenoLanguageServiceMethodInfo, (*Server).handleDenoLanguageServiceMethod)
-	registerRequestHandler(handlers, lsproto.DenoDidChangeConfigurationInfo, (*Server).handleDenoDidChangeConfiguration)
+	registerRequestHandler(handlers, lsproto.DenoRequestInfo, (*Server).handleDenoRequest)
 
 	return handlers
 })
@@ -1092,41 +1091,230 @@ func (o *DenoCrossProjectOrchestrator) GetProjectsLoadingProjectTree(ctx context
 	}
 }
 
-func (s *Server) handleDenoDidChangeConfiguration(ctx context.Context, params lsproto.DenoDidChangeConfigurationParams, _ *lsproto.RequestMessage) (any, error) {
-	byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.ByCompilerOptionsKey))
-	byNotebookUri := make(map[string]*DenoProgramEntry, len(params.ByNotebookUri))
-	for key, projectConfig := range params.ByCompilerOptionsKey {
-		existingEntry := s.deno.programEntries.byCompilerOptionsKey[key]
-		entry, err := s.createOrUpdateDenoProgramEntry(ctx, key, nil, projectConfig, existingEntry)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to create program entry for key %s: %w", key, err)
+func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequestParams, _ *lsproto.RequestMessage) (any, error) {
+	if params.WorkspaceChange != nil {
+		if params.WorkspaceChange.NewConfiguration != nil {
+			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
+			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByNotebookUri))
+			for key, projectConfig := range params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey {
+				entry, err := s.createDenoProgramEntry(ctx, key, nil, projectConfig)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to create program entry for key %s: %w", key, err)
+				}
+				byCompilerOptionsKey[key] = entry
+			}
+			for notebookUri, projectConfig := range params.WorkspaceChange.NewConfiguration.ByNotebookUri {
+				entry, err := s.createDenoProgramEntry(ctx, projectConfig.CompilerOptionsKey, &notebookUri, projectConfig)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to create program entry for notebook %s: %w", notebookUri, err)
+				}
+				byNotebookUri[notebookUri] = entry
+			}
+			s.deno.programEntries = DenoProgramEntries{
+				byCompilerOptionsKey: byCompilerOptionsKey,
+				byNotebookUri:        byNotebookUri,
+			}
+		} else {
+			// Handle file changes by updating affected programs
+			for _, fileChange := range params.WorkspaceChange.FileChanges {
+				filePath := tspath.ToPath(fileChange.Uri.FileName(), s.cwd, true)
+				updateProgram := func(pe *DenoProgramEntry) {
+					if pe.program.GetSourceFileByPath(filePath) != nil {
+						wrappedFS := bundled.WrapFS(pe.vfs)
+						newHost := compiler.NewCompilerHost(
+							s.cwd,
+							wrappedFS,
+							bundled.LibPath(),
+							nil,
+							nil,
+						)
+						newProgram, _ := pe.program.UpdateProgram(filePath, newHost)
+						pe.program = newProgram
+					}
+				}
+				for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
+					updateProgram(pe)
+				}
+				for _, pe := range s.deno.programEntries.byNotebookUri {
+					updateProgram(pe)
+				}
+			}
 		}
-		byCompilerOptionsKey[key] = entry
 	}
-	for notebookUri, projectConfig := range params.ByNotebookUri {
-		existingEntry := s.deno.programEntries.byNotebookUri[notebookUri]
-		entry, err := s.createOrUpdateDenoProgramEntry(ctx, projectConfig.CompilerOptionsKey, &notebookUri, projectConfig, existingEntry)
+	if params.Request.LanguageServiceMethod != nil {
+		req := params.Request.LanguageServiceMethod
+		_, languageService, orchestrator, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to create program entry for notebook %s: %w", notebookUri, err)
+			return nil, err
 		}
-		byNotebookUri[notebookUri] = entry
-	}
-	s.deno.programEntries = DenoProgramEntries{
-		byCompilerOptionsKey: byCompilerOptionsKey,
-		byNotebookUri:        byNotebookUri,
+		unmarshalArg := func(arg any, target any) {
+			bytes, _ := json.Marshal(arg)
+			json.Unmarshal(bytes, target)
+		}
+		switch req.Name {
+		case "ProvideDiagnostics":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideDiagnostics(ctx, p0)
+		case "ProvideReferences":
+			var p0 lsproto.ReferenceParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideReferences(ctx, &p0, orchestrator)
+		case "ProvideCodeLenses":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCodeLenses(ctx, p0)
+		case "ProvideDocumentSymbols":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideDocumentSymbols(ctx, p0)
+		case "ProvideHover":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideHover(ctx, p0, p1)
+		case "ProvideCodeActions":
+			var p0 lsproto.CodeActionParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCodeActions(ctx, &p0)
+		case "ProvideDocumentHighlights":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideDocumentHighlights(ctx, p0, p1)
+		case "ProvideDefinition":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideDefinition(ctx, p0, p1)
+		case "ProvideTypeDefinition":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideTypeDefinition(ctx, p0, p1)
+		case "ProvideCompletion":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			var p2 lsproto.CompletionContext
+			unmarshalArg(req.Args[2], &p2)
+			return languageService.ProvideCompletion(ctx, p0, p1, &p2)
+		case "ResolveCompletionItem":
+			var p0 lsproto.CompletionItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ResolveCompletionItem(ctx, &p0, p0.Data)
+		case "ProvideImplementations":
+			var p0 lsproto.ImplementationParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideImplementations(ctx, &p0, orchestrator)
+		case "ProvideFoldingRange":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideFoldingRange(ctx, p0)
+		case "ProvideCallHierarchyIncomingCalls":
+			var p0 lsproto.CallHierarchyItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCallHierarchyIncomingCalls(ctx, &p0, orchestrator)
+		case "ProvideCallHierarchyOutgoingCalls":
+			var p0 lsproto.CallHierarchyItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCallHierarchyOutgoingCalls(ctx, &p0)
+		case "ProvidePrepareCallHierarchy":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvidePrepareCallHierarchy(ctx, p0, p1)
+		case "ProvideRename":
+			var p0 lsproto.RenameParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideRename(ctx, &p0, orchestrator)
+		case "ProvideSelectionRanges":
+			var p0 lsproto.SelectionRangeParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideSelectionRanges(ctx, &p0)
+		case "ProvideSignatureHelp":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			var p2 lsproto.SignatureHelpContext
+			unmarshalArg(req.Args[2], &p2)
+			return languageService.ProvideSignatureHelp(ctx, p0, p1, &p2)
+		case "ProvideInlayHint":
+			var p0 lsproto.InlayHintParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideInlayHint(ctx, &p0)
+		default:
+			return nil, fmt.Errorf("Unsupported method: %s", req.Name)
+		}
+	} else if params.Request.GetAmbientModules != nil {
+		req := params.Request.GetAmbientModules
+		pe, _, _, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
+		if err != nil {
+			return nil, err
+		}
+		checker, done := pe.program.GetTypeChecker(ctx)
+		defer done()
+		symbols := checker.GetAmbientModules(nil)
+		return core.Map(symbols, func(s *ast.Symbol) string { return s.Name }), nil
+	} else if params.Request.WorkspaceSymbol != nil {
+		req := params.Request.WorkspaceSymbol
+		var programs []*compiler.Program
+		var firstHost *DenoLanguageServiceHost
+		for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
+			programs = append(programs, pe.program)
+			if firstHost == nil {
+				firstHost = NewDenoLanguageServiceHost(pe.vfs)
+			}
+		}
+		for _, pe := range s.deno.programEntries.byNotebookUri {
+			programs = append(programs, pe.program)
+			if firstHost == nil {
+				firstHost = NewDenoLanguageServiceHost(pe.vfs)
+			}
+		}
+		if firstHost == nil {
+			return nil, fmt.Errorf("No program entries available")
+		}
+		return ls.ProvideWorkspaceSymbols(ctx, programs, firstHost.Converters(), firstHost.UserPreferences(), req.Query)
 	}
 	return nil, nil
 }
 
-func (s *Server) createOrUpdateDenoProgramEntry(ctx context.Context, compilerOptionsKey string, notebookUri *string, projectConfig *lsproto.DenoProjectConfig, existingEntry *DenoProgramEntry) (*DenoProgramEntry, error) {
-	// Reuse existing VFS if available, just update its context
-	var denoVFS *DenoVFS
-	if existingEntry != nil && existingEntry.vfs != nil {
-		denoVFS = existingEntry.vfs
-		denoVFS.ctx = ctx
-	} else {
-		denoVFS = NewDenoVFS(s, ctx, compilerOptionsKey, notebookUri)
+func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey string, notebookUri *string) (*DenoProgramEntry, *ls.LanguageService, *DenoCrossProjectOrchestrator, error) {
+	var pe *DenoProgramEntry
+	if notebookUri != nil {
+		pe = s.deno.programEntries.byNotebookUri[*notebookUri]
 	}
+	if pe == nil {
+		pe = s.deno.programEntries.byCompilerOptionsKey[compilerOptionsKey]
+	}
+	if pe == nil {
+		if notebookUri != nil {
+			return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s and notebook %s", compilerOptionsKey, *notebookUri)
+		}
+		return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
+	}
+
+	host := NewDenoLanguageServiceHost(pe.vfs)
+	orchestrator := &DenoCrossProjectOrchestrator{
+		server:              s,
+		ctx:                 ctx,
+		defaultProgramEntry: pe,
+		defaultHost:         host,
+	}
+	languageService := ls.NewLanguageService(pe.projectPath, pe.program, host)
+	return pe, languageService, orchestrator, nil
+}
+
+func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey string, notebookUri *string, projectConfig *lsproto.DenoProjectConfig) (*DenoProgramEntry, error) {
+	denoVFS := NewDenoVFS(s, ctx, compilerOptionsKey, notebookUri)
 	wrappedFS := bundled.WrapFS(denoVFS)
 	compilerHost := compiler.NewCompilerHost(
 		s.cwd,
@@ -1155,136 +1343,6 @@ func (s *Server) createOrUpdateDenoProgramEntry(ctx context.Context, compilerOpt
 		compilerOptions:    projectConfig.CompilerOptions,
 		vfs:                denoVFS,
 	}, nil
-}
-
-func (s *Server) handleDenoLanguageServiceMethod(ctx context.Context, params lsproto.DenoLanguageServiceMethodParams, _ *lsproto.RequestMessage) (any, error) {
-	var pe *DenoProgramEntry = nil
-	if params.NotebookUri != nil {
-		pe = s.deno.programEntries.byNotebookUri[*params.NotebookUri]
-	}
-	if pe == nil {
-		pe = s.deno.programEntries.byCompilerOptionsKey[params.CompilerOptionsKey]
-	}
-	if pe == nil {
-		if params.NotebookUri != nil {
-			return nil, fmt.Errorf("Couldn't find program entry for key: %s and notebook %s", params.CompilerOptionsKey, *params.NotebookUri)
-		} else {
-			if params.NotebookUri != nil {
-				return nil, fmt.Errorf("Couldn't find program entry for key: %s", params.CompilerOptionsKey)
-			}
-		}
-	}
-
-	host := NewDenoLanguageServiceHost(pe.vfs)
-	orchestrator := DenoCrossProjectOrchestrator{
-		server:              s,
-		ctx:                 ctx,
-		defaultProgramEntry: pe,
-		defaultHost:         host,
-	}
-	ls := ls.NewLanguageService(pe.projectPath, pe.program, host)
-	switch params.Method {
-	case "ProvideDiagnostics":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideDiagnostics(ctx, p0)
-	case "ProvideReferences":
-		var p0 lsproto.ReferenceParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideReferences(ctx, &p0, &orchestrator)
-	case "ProvideCodeLenses":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideCodeLenses(ctx, p0)
-	case "ProvideDocumentSymbols":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideDocumentSymbols(ctx, p0)
-	case "ProvideHover":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ProvideHover(ctx, p0, p1)
-	case "ProvideCodeActions":
-		var p0 lsproto.CodeActionParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideCodeActions(ctx, &p0)
-	case "ProvideDocumentHighlights":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ProvideDocumentHighlights(ctx, p0, p1)
-	case "ProvideDefinition":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ProvideDefinition(ctx, p0, p1)
-	case "ProvideTypeDefinition":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ProvideTypeDefinition(ctx, p0, p1)
-	case "ProvideCompletion":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		var p2 lsproto.CompletionContext
-		json.Unmarshal([]byte(params.Args[2]), &p2)
-		return ls.ProvideCompletion(ctx, p0, p1, &p2)
-	case "ResolveCompletionItem":
-		var p0 lsproto.CompletionItem
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ResolveCompletionItem(ctx, &p0, p0.Data)
-	case "ProvideImplementations":
-		var p0 lsproto.ImplementationParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideImplementations(ctx, &p0, &orchestrator)
-	case "ProvideFoldingRange":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideFoldingRange(ctx, p0)
-	case "ProvideCallHierarchyIncomingCalls":
-		var p0 lsproto.CallHierarchyItem
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideCallHierarchyIncomingCalls(ctx, &p0, &orchestrator)
-	case "ProvideCallHierarchyOutgoingCalls":
-		var p0 lsproto.CallHierarchyItem
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideCallHierarchyOutgoingCalls(ctx, &p0)
-	case "ProvidePrepareCallHierarchy":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		return ls.ProvidePrepareCallHierarchy(ctx, p0, p1)
-	case "ProvideRename":
-		var p0 lsproto.RenameParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideRename(ctx, &p0, &orchestrator)
-	case "ProvideSelectionRanges":
-		var p0 lsproto.SelectionRangeParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideSelectionRanges(ctx, &p0)
-	case "ProvideSignatureHelp":
-		var p0 lsproto.DocumentUri
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		var p1 lsproto.Position
-		json.Unmarshal([]byte(params.Args[1]), &p1)
-		var p2 lsproto.SignatureHelpContext
-		json.Unmarshal([]byte(params.Args[2]), &p2)
-		return ls.ProvideSignatureHelp(ctx, p0, p1, &p2)
-	case "ProvideInlayHint":
-		var p0 lsproto.InlayHintParams
-		json.Unmarshal([]byte(params.Args[0]), &p0)
-		return ls.ProvideInlayHint(ctx, &p0)
-	default:
-		return nil, fmt.Errorf("Unsupported method: %s", params.Method)
-	}
 }
 
 func (s *Server) handleInitialize(ctx context.Context, params *lsproto.InitializeParams, _ *lsproto.RequestMessage) (lsproto.InitializeResponse, error) {

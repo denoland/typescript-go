@@ -23267,16 +23267,8 @@ func unmarshalParams(method Method, data []byte) (any, error) {
 		return unmarshalPtrTo[CancelParams](data)
 	case MethodProgress:
 		return unmarshalPtrTo[ProgressParams](data)
-	case MethodDenoDidOpen:
-		return unmarshalPtrTo[DenoDidOpenParams](data)
-	case MethodDenoDidChange:
-		return unmarshalPtrTo[DenoDidChangeParams](data)
-	case MethodDenoDidClose:
-		return unmarshalPtrTo[DenoDidCloseParams](data)
-	case MethodDenoDidChangeConfiguration:
-		return unmarshalPtrTo[DenoDidChangeConfigurationParams](data)
-	case MethodDenoLanguageServiceMethod:
-		return unmarshalPtrTo[DenoLanguageServiceMethodParams](data)
+	case MethodDenoRequest:
+		return unmarshalPtrTo[DenoRequestParams](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23826,11 +23818,7 @@ const (
 	MethodLogTrace                       Method = "$/logTrace"
 	MethodCancelRequest                  Method = "$/cancelRequest"
 	MethodProgress                       Method = "$/progress"
-	MethodDenoDidOpen                    Method = "deno/didOpen"
-	MethodDenoDidChange                  Method = "deno/didChange"
-	MethodDenoDidClose                   Method = "deno/didClose"
-	MethodDenoDidChangeConfiguration     Method = "deno/didChangeConfiguration"
-	MethodDenoLanguageServiceMethod      Method = "deno/languageServiceMethod"
+	MethodDenoRequest                    Method = "deno/request"
 
 	// Deno Host methods - requests sent TO the client
 	MethodDenoHostReadFile        Method = "deno/host/readFile"
@@ -24336,23 +24324,24 @@ var ProgressInfo = NotificationInfo[*ProgressParams]{Method: MethodProgress}
 
 // Deno types
 
-type DenoDidOpenParams struct {
-	Uri DocumentUri `json:"uri"`
+// DenoFileChangeKind represents the kind of file change
+type DenoFileChangeKind string
+
+const (
+	DenoFileChangeKindOpened   DenoFileChangeKind = "opened"
+	DenoFileChangeKindClosed   DenoFileChangeKind = "closed"
+	DenoFileChangeKindModified DenoFileChangeKind = "modified"
+)
+
+type DenoFileChange struct {
+	Uri  DocumentUri        `json:"uri"`
+	Kind DenoFileChangeKind `json:"kind"`
 }
 
-var DenoDidOpenInfo = RequestInfo[DenoDidOpenParams, any]{Method: MethodDenoDidOpen}
-
-type DenoDidChangeParams struct {
-	Uri DocumentUri `json:"uri"`
+type DenoFileNames struct {
+	ByCompilerOptionsKey map[string][]string `json:"byCompilerOptionsKey"`
+	ByNotebookUri        map[string][]string `json:"byNotebookUri"`
 }
-
-var DenoDidChangeInfo = RequestInfo[DenoDidChangeParams, any]{Method: MethodDenoDidChange}
-
-type DenoDidCloseParams struct {
-	Uri DocumentUri `json:"uri"`
-}
-
-var DenoDidCloseInfo = RequestInfo[DenoDidCloseParams, any]{Method: MethodDenoDidClose}
 
 type DenoProjectConfig struct {
 	CompilerOptions    *core.CompilerOptions `json:"compilerOptions"`
@@ -24361,22 +24350,44 @@ type DenoProjectConfig struct {
 	NotebookUri        *string               `json:"notebookUri"`
 }
 
-type DenoDidChangeConfigurationParams struct {
+type DenoWorkspaceConfig struct {
 	ByCompilerOptionsKey map[string]*DenoProjectConfig `json:"byCompilerOptionsKey"`
-	// Key: Uri, Value: Key for the above from whom to inherit the compiler options.
-	ByNotebookUri map[string]*DenoProjectConfig `json:"byNotebookUri"`
+	ByNotebookUri        map[string]*DenoProjectConfig `json:"byNotebookUri"`
 }
 
-var DenoDidChangeConfigurationInfo = RequestInfo[DenoDidChangeConfigurationParams, any]{Method: MethodDenoDidChangeConfiguration}
-
-type DenoLanguageServiceMethodParams struct {
-	Method             string   `json:"method"`
-	Args               []string `json:"args"`
-	CompilerOptionsKey string   `json:"compilerOptionsKey"`
-	NotebookUri        *string  `json:"notebookUri"`
+type DenoWorkspaceChange struct {
+	FileChanges      []DenoFileChange     `json:"fileChanges"`
+	NewConfiguration *DenoWorkspaceConfig `json:"newConfiguration,omitempty"`
 }
 
-var DenoLanguageServiceMethodInfo = RequestInfo[DenoLanguageServiceMethodParams, any]{Method: MethodDenoLanguageServiceMethod}
+type DenoLanguageServiceMethodRequest struct {
+	Name               string  `json:"name"`
+	Args               []any   `json:"args"`
+	CompilerOptionsKey string  `json:"compilerOptionsKey"`
+	NotebookUri        *string `json:"notebookUri,omitempty"`
+}
+
+type DenoGetAmbientModulesRequest struct {
+	CompilerOptionsKey string  `json:"compilerOptionsKey"`
+	NotebookUri        *string `json:"notebookUri,omitempty"`
+}
+
+type DenoWorkspaceSymbolRequest struct {
+	Query string `json:"query"`
+}
+
+type DenoRequest struct {
+	LanguageServiceMethod *DenoLanguageServiceMethodRequest `json:"languageServiceMethod,omitempty"`
+	GetAmbientModules     *DenoGetAmbientModulesRequest     `json:"getAmbientModules,omitempty"`
+	WorkspaceSymbol       *DenoWorkspaceSymbolRequest       `json:"workspaceSymbol,omitempty"`
+}
+
+type DenoRequestParams struct {
+	Request         DenoRequest          `json:"request"`
+	WorkspaceChange *DenoWorkspaceChange `json:"workspaceChange,omitempty"`
+}
+
+var DenoRequestInfo = RequestInfo[*DenoRequestParams, any]{Method: MethodDenoRequest}
 
 // Deno Host request types - these are requests sent TO the client
 
