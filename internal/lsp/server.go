@@ -290,7 +290,7 @@ func (v *DenoVFS) FileExists(path string) bool {
 func (v *DenoVFS) ReadFile(path string) (contents string, ok bool) {
 	params := lsproto.DenoHostReadFileParams{
 		DenoHostBaseParams: v.baseParams(),
-		Path:               path,
+		Uri:                lsconv.FileNameToDocumentURI(path),
 	}
 	var response lsproto.DenoHostReadFileResponse
 	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoHostReadFile, params, &response)

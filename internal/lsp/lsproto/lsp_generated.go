@@ -24399,7 +24399,7 @@ type DenoHostBaseParams struct {
 // ReadFile
 type DenoHostReadFileParams struct {
 	DenoHostBaseParams
-	Path string `json:"path"`
+	Uri DocumentUri `json:"uri"`
 }
 
 type DenoHostReadFileResponse struct {
