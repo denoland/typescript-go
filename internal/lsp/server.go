@@ -152,9 +152,9 @@ type DenoProgramEntries struct {
 
 type DenoServerData struct {
 	programEntries DenoProgramEntries
+	documentCache  map[lsproto.DocumentUri]*lsproto.DenoDocumentData
 }
 
-// DenoLanguageServiceHost implements ls.Host by sending requests to the client
 type DenoLanguageServiceHost struct {
 	vfs              *DenoVFS
 	positionEncoding lsproto.PositionEncodingKind
@@ -182,23 +182,13 @@ func (h *DenoLanguageServiceHost) Converters() *lsconv.Converters {
 }
 
 func (h *DenoLanguageServiceHost) getLineMap(fileName string) *lsconv.LSPLineMap {
-	params := lsproto.DenoHostGetLineMapParams{
-		DenoHostBaseParams: h.vfs.baseParams(),
-		FileName:           fileName,
+	if data := h.vfs.GetDocument(fileName); data != nil {
+		return &lsconv.LSPLineMap{
+			LineStarts: data.LineStarts,
+			AsciiOnly:  data.AsciiOnly,
+		}
 	}
-	var response lsproto.DenoHostGetLineMapResponse
-	err := h.vfs.server.sendRequestSync(h.vfs.ctx, lsproto.MethodDenoHostGetLineMap, params, &response)
-	if err != nil {
-		return &lsconv.LSPLineMap{}
-	}
-	lineStarts := make([]core.TextPos, len(response.LineStarts))
-	for i, v := range response.LineStarts {
-		lineStarts[i] = core.TextPos(v)
-	}
-	return &lsconv.LSPLineMap{
-		LineStarts: lineStarts,
-		AsciiOnly:  response.AsciiOnly,
-	}
+	return &lsconv.LSPLineMap{}
 }
 
 func (h *DenoLanguageServiceHost) UserPreferences() *lsutil.UserPreferences {
@@ -231,20 +221,10 @@ func (h *DenoLanguageServiceHost) FormatOptions() *format.FormatCodeSettings {
 }
 
 func (h *DenoLanguageServiceHost) GetECMALineInfo(fileName string) *sourcemap.ECMALineInfo {
-	params := lsproto.DenoHostGetECMALineInfoParams{
-		DenoHostBaseParams: h.vfs.baseParams(),
-		FileName:           fileName,
+	if data := h.vfs.GetDocument(fileName); data != nil {
+		return sourcemap.CreateECMALineInfo(*data.Text, data.LineStarts)
 	}
-	var response lsproto.DenoHostGetECMALineInfoResponse
-	err := h.vfs.server.sendRequestSync(h.vfs.ctx, lsproto.MethodDenoHostGetECMALineInfo, params, &response)
-	if err != nil {
-		return nil
-	}
-	lineStarts := make(core.ECMALineStarts, len(response.LineStarts))
-	for i, v := range response.LineStarts {
-		lineStarts[i] = core.TextPos(v)
-	}
-	return sourcemap.CreateECMALineInfo(response.Text, lineStarts)
+	return nil
 }
 
 func (h *DenoLanguageServiceHost) AutoImportRegistry() *autoimport.Registry {
@@ -287,17 +267,33 @@ func (v *DenoVFS) FileExists(path string) bool {
 	return ok
 }
 
-func (v *DenoVFS) ReadFile(path string) (contents string, ok bool) {
-	params := lsproto.DenoHostReadFileParams{
+func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
+	uri := lsconv.FileNameToDocumentURI(path)
+	if v.server.deno.documentCache != nil {
+		if data, ok := v.server.deno.documentCache[uri]; ok {
+			return data
+		}
+	}
+	params := lsproto.DenoHostGetDocumentParams{
 		DenoHostBaseParams: v.baseParams(),
-		Uri:                lsconv.FileNameToDocumentURI(path),
+		Uri:                uri,
 	}
-	var response lsproto.DenoHostReadFileResponse
-	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoHostReadFile, params, &response)
-	if err != nil || response.Contents == nil {
-		return "", false
+	var response lsproto.DenoDocumentData
+	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoHostGetDocument, params, &response)
+	if err != nil || response.Text == nil {
+		return nil
 	}
-	return *response.Contents, true
+	if v.server.deno.documentCache != nil {
+		v.server.deno.documentCache[uri] = &response
+	}
+	return &response
+}
+
+func (v *DenoVFS) ReadFile(path string) (contents string, ok bool) {
+	if data := v.GetDocument(path); data != nil {
+		return *data.Text, true
+	}
+	return "", false
 }
 
 func (v *DenoVFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
@@ -313,7 +309,7 @@ func (v *DenoVFS) Chtimes(path string, aTime time.Time, mTime time.Time) error {
 }
 
 func (v *DenoVFS) DirectoryExists(path string) bool {
-	// For simplicity, return false - directories are managed by the client
+	// Directories are managed by the client
 	return false
 }
 
@@ -1094,6 +1090,9 @@ func (o *DenoCrossProjectOrchestrator) GetProjectsLoadingProjectTree(ctx context
 func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequestParams, _ *lsproto.RequestMessage) (any, error) {
 	if params.WorkspaceChange != nil {
 		if params.WorkspaceChange.NewConfiguration != nil {
+			// Clear document cache on new configuration
+			s.deno.documentCache = make(map[lsproto.DocumentUri]*lsproto.DenoDocumentData)
+
 			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
 			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByNotebookUri))
 			for key, projectConfig := range params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey {
@@ -1117,6 +1116,9 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		} else {
 			// Handle file changes by updating affected programs
 			for _, fileChange := range params.WorkspaceChange.FileChanges {
+				// Clear document cache entry for changed file
+				delete(s.deno.documentCache, fileChange.Uri)
+
 				filePath := tspath.ToPath(fileChange.Uri.FileName(), s.cwd, true)
 				updateProgram := func(pe *DenoProgramEntry) {
 					if pe.program.GetSourceFileByPath(filePath) != nil {

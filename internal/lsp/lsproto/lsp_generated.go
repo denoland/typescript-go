@@ -23414,16 +23414,12 @@ func unmarshalResult(method Method, data []byte) (any, error) {
 		return unmarshalValue[ExecuteCommandResponse](data)
 	case MethodWorkspaceApplyEdit:
 		return unmarshalValue[ApplyWorkspaceEditResponse](data)
-	case MethodDenoHostReadFile:
-		return unmarshalValue[DenoHostReadFileResponse](data)
-	case MethodDenoHostGetLineMap:
-		return unmarshalValue[DenoHostGetLineMapResponse](data)
+	case MethodDenoHostGetDocument:
+		return unmarshalValue[DenoDocumentData](data)
 	case MethodDenoHostUserPreferences:
 		return unmarshalValue[DenoHostUserPreferencesResponse](data)
 	case MethodDenoHostFormatOptions:
 		return unmarshalValue[DenoHostFormatOptionsResponse](data)
-	case MethodDenoHostGetECMALineInfo:
-		return unmarshalValue[DenoHostGetECMALineInfoResponse](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23821,11 +23817,9 @@ const (
 	MethodDenoRequest                    Method = "deno/request"
 
 	// Deno Host methods - requests sent TO the client
-	MethodDenoHostReadFile        Method = "deno/host/readFile"
-	MethodDenoHostGetLineMap      Method = "deno/host/getLineMap"
+	MethodDenoHostGetDocument     Method = "deno/host/getDocument"
 	MethodDenoHostUserPreferences Method = "deno/host/userPreferences"
 	MethodDenoHostFormatOptions   Method = "deno/host/formatOptions"
-	MethodDenoHostGetECMALineInfo Method = "deno/host/getECMALineInfo"
 )
 
 // Request response types
@@ -24324,7 +24318,6 @@ var ProgressInfo = NotificationInfo[*ProgressParams]{Method: MethodProgress}
 
 // Deno types
 
-// DenoFileChangeKind represents the kind of file change
 type DenoFileChangeKind string
 
 const (
@@ -24389,35 +24382,24 @@ type DenoRequestParams struct {
 
 var DenoRequestInfo = RequestInfo[*DenoRequestParams, any]{Method: MethodDenoRequest}
 
-// Deno Host request types - these are requests sent TO the client
+// Deno Host request types
 
 type DenoHostBaseParams struct {
 	CompilerOptionsKey string  `json:"compilerOptionsKey"`
 	NotebookUri        *string `json:"notebookUri,omitempty"`
 }
 
-// ReadFile
-type DenoHostReadFileParams struct {
+type DenoHostGetDocumentParams struct {
 	DenoHostBaseParams
 	Uri DocumentUri `json:"uri"`
 }
 
-type DenoHostReadFileResponse struct {
-	Contents *string `json:"contents"` // nil if file not found
+type DenoDocumentData struct {
+	Text       *string        `json:"text"`
+	LineStarts []core.TextPos `json:"lineStarts,omitempty"`
+	AsciiOnly  bool           `json:"asciiOnly,omitempty"`
 }
 
-// GetLineMap (for Converters)
-type DenoHostGetLineMapParams struct {
-	DenoHostBaseParams
-	FileName string `json:"fileName"`
-}
-
-type DenoHostGetLineMapResponse struct {
-	LineStarts []int `json:"lineStarts"`
-	AsciiOnly  bool  `json:"asciiOnly"`
-}
-
-// UserPreferences
 type DenoHostUserPreferencesParams struct {
 	DenoHostBaseParams
 }
@@ -24426,24 +24408,12 @@ type DenoHostUserPreferencesResponse struct {
 	Preferences map[string]any `json:"preferences"`
 }
 
-// FormatOptions
 type DenoHostFormatOptionsParams struct {
 	DenoHostBaseParams
 }
 
 type DenoHostFormatOptionsResponse struct {
 	Options map[string]any `json:"options"`
-}
-
-// GetECMALineInfo
-type DenoHostGetECMALineInfoParams struct {
-	DenoHostBaseParams
-	FileName string `json:"fileName"`
-}
-
-type DenoHostGetECMALineInfoResponse struct {
-	Text       string `json:"text"`
-	LineStarts []int  `json:"lineStarts"`
 }
 
 // Union types
