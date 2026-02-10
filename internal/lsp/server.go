@@ -8,6 +8,7 @@ import (
 	"iter"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -253,7 +254,12 @@ func (v *DenoVFS) FileExists(path string) bool {
 }
 
 func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
-	uri := lsconv.FileNameToDocumentURI(path)
+	var uri lsproto.DocumentUri
+	if strings.HasPrefix(path, "asset:///") {
+		uri = lsproto.DocumentUri(path)
+	} else {
+		uri = lsconv.FileNameToDocumentURI(path)
+	}
 	if v.server.deno.documentCache != nil {
 		if data, ok := v.server.deno.documentCache[uri]; ok {
 			return data
