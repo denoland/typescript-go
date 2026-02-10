@@ -24335,10 +24335,10 @@ type DenoFileNames struct {
 type DenoProjectConfig struct {
 	CompilerOptions    *core.CompilerOptions      `json:"compilerOptions"`
 	Files              []DocumentUri              `json:"files"`
-	CompilerOptionsKey string                     `json:"compilerOptionsKey"`
-	NotebookUri        *string                    `json:"notebookUri"`
 	UserPreferences    *lsutil.UserPreferences    `json:"userPreferences"`
 	FormatOptions      *format.FormatCodeSettings `json:"formatOptions"`
+	CompilerOptionsKey string                     `json:"compilerOptionsKey"`
+	NotebookUri        *string                    `json:"notebookUri"`
 }
 
 type DenoWorkspaceConfig struct {

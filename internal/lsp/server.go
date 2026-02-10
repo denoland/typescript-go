@@ -142,9 +142,9 @@ type DenoProgramEntry struct {
 	compilerOptionsKey string
 	notebookUri        *string
 	compilerOptions    *core.CompilerOptions
-	vfs                *DenoVFS
 	userPreferences    *lsutil.UserPreferences
 	formatOptions      *format.FormatCodeSettings
+	vfs                *DenoVFS
 }
 
 type DenoProgramEntries struct {
@@ -1334,9 +1334,9 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		compilerOptionsKey: compilerOptionsKey,
 		notebookUri:        notebookUri,
 		compilerOptions:    projectConfig.CompilerOptions,
-		vfs:                denoVFS,
 		userPreferences:    projectConfig.UserPreferences,
 		formatOptions:      projectConfig.FormatOptions,
+		vfs:                denoVFS,
 	}, nil
 }
 
