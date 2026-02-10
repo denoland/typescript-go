@@ -9,6 +9,8 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/format"
+	"github.com/microsoft/typescript-go/internal/ls/lsutil"
 )
 
 // Meta model version 3.17.0
@@ -23416,10 +23418,6 @@ func unmarshalResult(method Method, data []byte) (any, error) {
 		return unmarshalValue[ApplyWorkspaceEditResponse](data)
 	case MethodDenoHostGetDocument:
 		return unmarshalValue[DenoDocumentData](data)
-	case MethodDenoHostUserPreferences:
-		return unmarshalValue[DenoHostUserPreferencesResponse](data)
-	case MethodDenoHostFormatOptions:
-		return unmarshalValue[DenoHostFormatOptionsResponse](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23816,10 +23814,8 @@ const (
 	MethodProgress                       Method = "$/progress"
 	MethodDenoRequest                    Method = "deno/request"
 
-	// Deno Host methods - requests sent TO the client
-	MethodDenoHostGetDocument     Method = "deno/host/getDocument"
-	MethodDenoHostUserPreferences Method = "deno/host/userPreferences"
-	MethodDenoHostFormatOptions   Method = "deno/host/formatOptions"
+	// Deno Host methods
+	MethodDenoHostGetDocument Method = "deno/host/getDocument"
 )
 
 // Request response types
@@ -24337,10 +24333,12 @@ type DenoFileNames struct {
 }
 
 type DenoProjectConfig struct {
-	CompilerOptions    *core.CompilerOptions `json:"compilerOptions"`
-	Files              []DocumentUri         `json:"files"`
-	CompilerOptionsKey string                `json:"compilerOptionsKey"`
-	NotebookUri        *string               `json:"notebookUri"`
+	CompilerOptions    *core.CompilerOptions      `json:"compilerOptions"`
+	Files              []DocumentUri              `json:"files"`
+	CompilerOptionsKey string                     `json:"compilerOptionsKey"`
+	NotebookUri        *string                    `json:"notebookUri"`
+	UserPreferences    *lsutil.UserPreferences    `json:"userPreferences"`
+	FormatOptions      *format.FormatCodeSettings `json:"formatOptions"`
 }
 
 type DenoWorkspaceConfig struct {
@@ -24398,22 +24396,6 @@ type DenoDocumentData struct {
 	Text       *string        `json:"text"`
 	LineStarts []core.TextPos `json:"lineStarts,omitempty"`
 	AsciiOnly  bool           `json:"asciiOnly,omitempty"`
-}
-
-type DenoHostUserPreferencesParams struct {
-	DenoHostBaseParams
-}
-
-type DenoHostUserPreferencesResponse struct {
-	Preferences map[string]any `json:"preferences"`
-}
-
-type DenoHostFormatOptionsParams struct {
-	DenoHostBaseParams
-}
-
-type DenoHostFormatOptionsResponse struct {
-	Options map[string]any `json:"options"`
 }
 
 // Union types

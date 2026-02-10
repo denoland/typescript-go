@@ -143,6 +143,8 @@ type DenoProgramEntry struct {
 	notebookUri        *string
 	compilerOptions    *core.CompilerOptions
 	vfs                *DenoVFS
+	userPreferences    *lsutil.UserPreferences
+	formatOptions      *format.FormatCodeSettings
 }
 
 type DenoProgramEntries struct {
@@ -158,14 +160,18 @@ type DenoServerData struct {
 type DenoLanguageServiceHost struct {
 	vfs              *DenoVFS
 	positionEncoding lsproto.PositionEncodingKind
+	userPreferences  *lsutil.UserPreferences
+	formatOptions    *format.FormatCodeSettings
 }
 
 var _ ls.Host = (*DenoLanguageServiceHost)(nil)
 
-func NewDenoLanguageServiceHost(vfs *DenoVFS) *DenoLanguageServiceHost {
+func NewDenoLanguageServiceHost(vfs *DenoVFS, userPreferences *lsutil.UserPreferences, formatOptions *format.FormatCodeSettings) *DenoLanguageServiceHost {
 	return &DenoLanguageServiceHost{
 		vfs:              vfs,
 		positionEncoding: lsproto.PositionEncodingKindUTF16, // default
+		userPreferences:  userPreferences,
+		formatOptions:    formatOptions,
 	}
 }
 
@@ -192,32 +198,11 @@ func (h *DenoLanguageServiceHost) getLineMap(fileName string) *lsconv.LSPLineMap
 }
 
 func (h *DenoLanguageServiceHost) UserPreferences() *lsutil.UserPreferences {
-	params := lsproto.DenoHostUserPreferencesParams{
-		DenoHostBaseParams: h.vfs.baseParams(),
-	}
-	var response lsproto.DenoHostUserPreferencesResponse
-	err := h.vfs.server.sendRequestSync(h.vfs.ctx, lsproto.MethodDenoHostUserPreferences, params, &response)
-	if err != nil {
-		return lsutil.NewDefaultUserPreferences()
-	}
-	prefs := lsutil.NewDefaultUserPreferences()
-	prefs.Parse(response.Preferences)
-	return prefs
+	return h.userPreferences
 }
 
 func (h *DenoLanguageServiceHost) FormatOptions() *format.FormatCodeSettings {
-	params := lsproto.DenoHostFormatOptionsParams{
-		DenoHostBaseParams: h.vfs.baseParams(),
-	}
-	var response lsproto.DenoHostFormatOptionsResponse
-	err := h.vfs.server.sendRequestSync(h.vfs.ctx, lsproto.MethodDenoHostFormatOptions, params, &response)
-	if err != nil {
-		return nil // will use default
-	}
-	// Parse the options map into FormatCodeSettings
-	// For now, return nil to use defaults - can be extended later
-	_ = response.Options
-	return nil
+	return h.formatOptions
 }
 
 func (h *DenoLanguageServiceHost) GetECMALineInfo(fileName string) *sourcemap.ECMALineInfo {
@@ -1040,8 +1025,9 @@ func (o *DenoCrossProjectOrchestrator) GetLanguageServiceForProjectWithFile(ctx 
 	if !ok {
 		return nil
 	}
-	host := NewDenoLanguageServiceHost(denoProject.programEntry.vfs)
-	return ls.NewLanguageService(denoProject.programEntry.projectPath, denoProject.programEntry.program, host)
+	pe := denoProject.programEntry
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
+	return ls.NewLanguageService(pe.projectPath, pe.program, host)
 }
 
 func (o *DenoCrossProjectOrchestrator) GetProjectsForFile(ctx context.Context, uri lsproto.DocumentUri) ([]ls.Project, error) {
@@ -1272,13 +1258,13 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
 			programs = append(programs, pe.program)
 			if firstHost == nil {
-				firstHost = NewDenoLanguageServiceHost(pe.vfs)
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
 			}
 		}
 		for _, pe := range s.deno.programEntries.byNotebookUri {
 			programs = append(programs, pe.program)
 			if firstHost == nil {
-				firstHost = NewDenoLanguageServiceHost(pe.vfs)
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
 			}
 		}
 		if firstHost == nil {
@@ -1304,7 +1290,7 @@ func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey 
 		return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
 	}
 
-	host := NewDenoLanguageServiceHost(pe.vfs)
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
 	orchestrator := &DenoCrossProjectOrchestrator{
 		server:              s,
 		ctx:                 ctx,
@@ -1341,6 +1327,7 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		JSDocParsingMode: ast.JSDocParsingModeParseAll,
 	})
 	projectPath := tspath.ToPath(s.cwd, "", denoVFS.UseCaseSensitiveFileNames())
+
 	return &DenoProgramEntry{
 		program:            program,
 		projectPath:        projectPath,
@@ -1348,6 +1335,8 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		notebookUri:        notebookUri,
 		compilerOptions:    projectConfig.CompilerOptions,
 		vfs:                denoVFS,
+		userPreferences:    projectConfig.UserPreferences,
+		formatOptions:      projectConfig.FormatOptions,
 	}, nil
 }
 
