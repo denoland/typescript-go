@@ -1323,10 +1323,14 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		nil, // extendedConfigCache
 		nil, // trace
 	)
+	fileNames := make([]string, len(projectConfig.Files))
+	for i, file := range projectConfig.Files {
+		fileNames[i] = file.FileName()
+	}
 	parsedCommandLine := &tsoptions.ParsedCommandLine{
 		ParsedConfig: &core.ParsedOptions{
 			CompilerOptions: projectConfig.CompilerOptions,
-			FileNames:       projectConfig.FileNames,
+			FileNames:       fileNames,
 		},
 	}
 	program := compiler.NewProgram(compiler.ProgramOptions{

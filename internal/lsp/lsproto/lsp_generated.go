@@ -24345,7 +24345,7 @@ type DenoFileNames struct {
 
 type DenoProjectConfig struct {
 	CompilerOptions    *core.CompilerOptions `json:"compilerOptions"`
-	FileNames          []string              `json:"fileNames"`
+	Files              []DocumentUri         `json:"files"`
 	CompilerOptionsKey string                `json:"compilerOptionsKey"`
 	NotebookUri        *string               `json:"notebookUri"`
 }
