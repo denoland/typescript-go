@@ -156,8 +156,9 @@ type DenoProgramEntries struct {
 }
 
 type DenoServerData struct {
-	programEntries DenoProgramEntries
-	documentCache  map[lsproto.DocumentUri]*lsproto.DenoDocumentData
+	programEntries     DenoProgramEntries
+	documentCache      map[lsproto.DocumentUri]*lsproto.DenoDocumentData
+	documentCacheMu    sync.RWMutex
 }
 
 type DenoLanguageServiceHost struct {
@@ -263,6 +264,8 @@ func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
 	} else {
 		uri = lsconv.FileNameToDocumentURI(path)
 	}
+	v.server.deno.documentCacheMu.Lock()
+	defer v.server.deno.documentCacheMu.Unlock()
 	if v.server.deno.documentCache != nil {
 		if data, ok := v.server.deno.documentCache[uri]; ok {
 			return data
@@ -1127,7 +1130,9 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 	if params.WorkspaceChange != nil {
 		if params.WorkspaceChange.NewConfiguration != nil {
 			// Clear document cache on new configuration
+			s.deno.documentCacheMu.Lock()
 			s.deno.documentCache = make(map[lsproto.DocumentUri]*lsproto.DenoDocumentData)
+			s.deno.documentCacheMu.Unlock()
 
 			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
 			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByNotebookUri))
@@ -1153,7 +1158,9 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 			// Handle file changes by updating affected programs
 			for _, fileChange := range params.WorkspaceChange.FileChanges {
 				// Clear document cache entry for changed file
+				s.deno.documentCacheMu.Lock()
 				delete(s.deno.documentCache, fileChange.Uri)
+				s.deno.documentCacheMu.Unlock()
 
 				filePath := tspath.ToPath(fileChange.Uri.FileName(), s.cwd, true)
 				updateProgram := func(pe *DenoProgramEntry) {
