@@ -373,16 +373,16 @@ func (s *snapshotFSBuilder) convertOpenAndCloseToChanges(change FileChangeSummar
 	return change
 }
 
-// sourceFS is a vfs.FS that sources files from a FileSource and tracks seen files.
-type sourceFS struct {
+// SourceFS is a vfs.FS that sources files from a FileSource and tracks seen files.
+type SourceFS struct {
 	tracking  bool
 	toPath    func(fileName string) tspath.Path
 	seenFiles *collections.SyncSet[tspath.Path]
 	source    FileSource
 }
 
-func newSourceFS(tracking bool, source FileSource, toPath func(fileName string) tspath.Path) *sourceFS {
-	fs := &sourceFS{
+func newSourceFS(tracking bool, source FileSource, toPath func(fileName string) tspath.Path) *SourceFS {
+	fs := &SourceFS{
 		tracking: tracking,
 		toPath:   toPath,
 		source:   source,
@@ -393,43 +393,43 @@ func newSourceFS(tracking bool, source FileSource, toPath func(fileName string) 
 	return fs
 }
 
-var _ vfs.FS = (*sourceFS)(nil)
+var _ vfs.FS = (*SourceFS)(nil)
 
-func (fs *sourceFS) DisableTracking() {
+func (fs *SourceFS) DisableTracking() {
 	fs.tracking = false
 }
 
-func (fs *sourceFS) Track(fileName string) {
+func (fs *SourceFS) Track(fileName string) {
 	if !fs.tracking {
 		return
 	}
 	fs.seenFiles.Add(fs.toPath(fileName))
 }
 
-func (fs *sourceFS) Seen(path tspath.Path) bool {
+func (fs *SourceFS) Seen(path tspath.Path) bool {
 	if fs.seenFiles == nil {
 		return false
 	}
 	return fs.seenFiles.Has(path)
 }
 
-func (fs *sourceFS) GetFile(fileName string) FileHandle {
+func (fs *SourceFS) GetFile(fileName string) FileHandle {
 	fs.Track(fileName)
 	return fs.source.GetFile(fileName)
 }
 
-func (fs *sourceFS) GetFileByPath(fileName string, path tspath.Path) FileHandle {
+func (fs *SourceFS) GetFileByPath(fileName string, path tspath.Path) FileHandle {
 	fs.Track(fileName)
 	return fs.source.GetFileByPath(fileName, path)
 }
 
 // DirectoryExists implements vfs.FS.
-func (fs *sourceFS) DirectoryExists(path string) bool {
+func (fs *SourceFS) DirectoryExists(path string) bool {
 	return fs.source.FS().DirectoryExists(path)
 }
 
 // FileExists implements vfs.FS.
-func (fs *sourceFS) FileExists(path string) bool {
+func (fs *SourceFS) FileExists(path string) bool {
 	if fh := fs.GetFile(path); fh != nil {
 		return true
 	}
@@ -437,12 +437,12 @@ func (fs *sourceFS) FileExists(path string) bool {
 }
 
 // GetAccessibleEntries implements vfs.FS.
-func (fs *sourceFS) GetAccessibleEntries(path string) vfs.Entries {
+func (fs *SourceFS) GetAccessibleEntries(path string) vfs.Entries {
 	return fs.source.GetAccessibleEntries(path)
 }
 
 // ReadFile implements vfs.FS.
-func (fs *sourceFS) ReadFile(path string) (contents string, ok bool) {
+func (fs *SourceFS) ReadFile(path string) (contents string, ok bool) {
 	if fh := fs.GetFile(path); fh != nil {
 		return fh.Content(), true
 	}
@@ -450,37 +450,37 @@ func (fs *sourceFS) ReadFile(path string) (contents string, ok bool) {
 }
 
 // Realpath implements vfs.FS.
-func (fs *sourceFS) Realpath(path string) string {
+func (fs *SourceFS) Realpath(path string) string {
 	return fs.source.FS().Realpath(path)
 }
 
 // Stat implements vfs.FS.
-func (fs *sourceFS) Stat(path string) vfs.FileInfo {
+func (fs *SourceFS) Stat(path string) vfs.FileInfo {
 	return fs.source.FS().Stat(path)
 }
 
 // UseCaseSensitiveFileNames implements vfs.FS.
-func (fs *sourceFS) UseCaseSensitiveFileNames() bool {
+func (fs *SourceFS) UseCaseSensitiveFileNames() bool {
 	return fs.source.FS().UseCaseSensitiveFileNames()
 }
 
 // WalkDir implements vfs.FS.
-func (fs *sourceFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
+func (fs *SourceFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 	return fs.source.FS().WalkDir(root, walkFn)
 }
 
 // WriteFile implements vfs.FS.
-func (fs *sourceFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+func (fs *SourceFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
 	panic("unimplemented")
 }
 
 // Remove implements vfs.FS.
-func (fs *sourceFS) Remove(path string) error {
+func (fs *SourceFS) Remove(path string) error {
 	panic("unimplemented")
 }
 
 // Chtimes implements vfs.FS.
-func (fs *sourceFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
+func (fs *SourceFS) Chtimes(path string, atime time.Time, mtime time.Time) error {
 	panic("unimplemented")
 }
 

@@ -92,6 +92,7 @@ const (
 	MethodGetTypeOfSymbol          Method = "getTypeOfSymbol"
 	MethodGetTypesOfSymbols        Method = "getTypesOfSymbols"
 	MethodGetSourceFile            Method = "getSourceFile"
+	MethodGetDiagnostics           Method = "getDiagnostics"
 )
 
 var unmarshalers = map[Method]func([]byte) (any, error){
@@ -107,6 +108,18 @@ var unmarshalers = map[Method]func([]byte) (any, error){
 	MethodGetSymbolsAtLocations:    unmarshallerFor[GetSymbolsAtLocationsParams],
 	MethodGetTypeOfSymbol:          unmarshallerFor[GetTypeOfSymbolParams],
 	MethodGetTypesOfSymbols:        unmarshallerFor[GetTypesOfSymbolsParams],
+	MethodGetDiagnostics:           unmarshallerFor[GetDiagnosticsParams],
+}
+
+type ForkContextInfo struct {
+	TypesNodeIgnorableNames []string `json:"typesNodeIgnorableNames"`
+	NodeOnlyGlobalNames     []string `json:"nodeOnlyGlobalNames"`
+}
+
+type ConfigureParams struct {
+	Callbacks []string        `json:"callbacks"`
+	LogFile   string          `json:"logFile"`
+	Fork      ForkContextInfo `json:"forkContextInfo"`
 }
 
 type ParseConfigFileParams struct {
@@ -178,6 +191,11 @@ func NewSymbolResponse(symbol *ast.Symbol) *SymbolResponse {
 		Flags:      uint32(symbol.Flags),
 		CheckFlags: uint32(symbol.CheckFlags),
 	}
+}
+
+type GetDiagnosticsParams struct {
+	Project   Handle[project.Project] `json:"project"`
+	FileNames []string                `json:"fileNames"`
 }
 
 type GetTypeOfSymbolParams struct {

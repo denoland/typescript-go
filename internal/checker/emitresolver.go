@@ -498,7 +498,7 @@ func (r *EmitResolver) IsImportRequiredByAugmentation(decl *ast.ImportDeclaratio
 	r.checkerMu.Lock()
 	defer r.checkerMu.Unlock()
 	exports := r.checker.getExportsOfModule(file.Symbol)
-	for s := range maps.Values(exports) {
+	for _, s := range exports.Iter() {
 		merged := r.checker.getMergedSymbol(s)
 		if merged != s {
 			if len(merged.Declarations) > 0 {
@@ -535,7 +535,8 @@ func (r *EmitResolver) IsDefinitelyReferenceToGlobalSymbolObject(node *ast.Node)
 	r.checkerMu.Lock()
 	defer r.checkerMu.Unlock()
 	// Exactly `globalThis.Symbol.something` and `globalThis` resolves to the global `globalThis`
-	return r.checker.getResolvedSymbol(node.Expression().Expression()) == r.checker.globalThisSymbol
+	resolved := r.checker.getResolvedSymbol(node.Expression().Expression())
+	return resolved == r.checker.denoGlobalThisSymbol || resolved == r.checker.nodeGlobalThisSymbol
 }
 
 func (r *EmitResolver) RequiresAddingImplicitUndefined(declaration *ast.Node, symbol *ast.Symbol, enclosingDeclaration *ast.Node) bool {
@@ -1016,7 +1017,10 @@ func (r *EmitResolver) CreateLateBoundIndexSignatures(emitContext *printer.EmitC
 	instanceIndexSymbol := r.checker.getIndexSymbol(sym)
 	var instanceInfos []*IndexInfo
 	if instanceIndexSymbol != nil {
-		siblingSymbols := slices.Collect(maps.Values(r.checker.getMembersOfSymbol(sym)))
+		var siblingSymbols []*ast.Symbol
+		for _, s := range r.checker.getMembersOfSymbol(sym).Iter() {
+			siblingSymbols = append(siblingSymbols, s)
+		}
 		instanceInfos = r.checker.getIndexInfosOfIndexSymbol(instanceIndexSymbol, siblingSymbols)
 	}
 

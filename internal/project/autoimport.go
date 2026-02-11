@@ -63,7 +63,7 @@ func (a *autoImportBuilderFS) GetAccessibleEntries(path string) vfs.Entries {
 type autoImportRegistryCloneHost struct {
 	projectCollection *ProjectCollection
 	parseCache        *ParseCache
-	fs                *sourceFS
+	fs                *SourceFS
 	currentDirectory  string
 
 	filesMu sync.Mutex

@@ -283,7 +283,7 @@ func (c *Checker) discriminateContextualTypeByJSXAttributes(node *ast.Node, cont
 		if s.Name == jsxChildrenPropertyName && ast.IsJsxElement(element) && len(ast.GetSemanticJsxChildren(element.Children().Nodes)) != 0 {
 			return false
 		}
-		return node.Symbol().Members[s.Name] == nil && c.isDiscriminantProperty(contextualType, s.Name)
+		return node.Symbol().Members.Get(s.Name) == nil && c.isDiscriminantProperty(contextualType, s.Name)
 	})
 	discriminator := &ObjectLiteralDiscriminator{c: c, props: discriminantProperties, members: discriminantMembers}
 	discriminated := c.discriminateTypeByDiscriminableItems(contextualType, discriminator)
@@ -705,9 +705,9 @@ func (c *Checker) checkApplicableSignatureForJsxCallLikeElement(node *ast.Node, 
 func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeElement *ast.Node, checkMode CheckMode) *Type {
 	var allAttributesTable ast.SymbolTable
 	if c.strictNullChecks {
-		allAttributesTable = make(ast.SymbolTable)
+		allAttributesTable = ast.NewSymbolTable()
 	}
-	attributesTable := make(ast.SymbolTable)
+	attributesTable := ast.NewSymbolTable()
 	var attributesSymbol *ast.Symbol
 	attributeParent := openingLikeElement
 	spread := c.emptyJsxObjectType
@@ -745,9 +745,9 @@ func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeEleme
 				links := c.valueSymbolLinks.Get(attributeSymbol)
 				links.resolvedType = exprType
 				links.target = member
-				attributesTable[attributeSymbol.Name] = attributeSymbol
+				attributesTable.Set(attributeSymbol.Name, attributeSymbol)
 				if allAttributesTable != nil {
-					allAttributesTable[attributeSymbol.Name] = attributeSymbol
+					allAttributesTable.Set(attributeSymbol.Name, attributeSymbol)
 				}
 				if attributeDecl.Name().Text() == jsxChildrenPropertyName {
 					explicitlySpecifyChildrenAttribute = true
@@ -767,9 +767,9 @@ func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeEleme
 				}
 			} else {
 				debug.Assert(attributeDecl.Kind == ast.KindJsxSpreadAttribute)
-				if len(attributesTable) != 0 {
+				if attributesTable != nil {
 					spread = c.getSpreadType(spread, createJsxAttributesType(), attributesSymbol, objectFlags, false /*readonly*/)
-					attributesTable = make(ast.SymbolTable)
+					attributesTable = ast.NewSymbolTable()
 				}
 				exprType := c.getReducedType(c.checkExpressionEx(attributeDecl.Expression(), checkMode&CheckModeInferential))
 				if IsTypeAny(exprType) {
@@ -791,7 +791,7 @@ func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeEleme
 			}
 		}
 		if !hasSpreadAnyType {
-			if len(attributesTable) != 0 {
+			if attributesTable != nil {
 				spread = c.getSpreadType(spread, createJsxAttributesType(), attributesSymbol, objectFlags, false /*readonly*/)
 			}
 		}
@@ -847,8 +847,8 @@ func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeEleme
 			childrenPropSymbol.ValueDeclaration = c.factory.NewPropertySignatureDeclaration(nil, c.factory.NewIdentifier(jsxChildrenPropertyName), nil /*postfixToken*/, nil /*type*/, nil /*initializer*/)
 			childrenPropSymbol.ValueDeclaration.Parent = attributeParent
 			childrenPropSymbol.ValueDeclaration.AsPropertySignatureDeclaration().Symbol = childrenPropSymbol
-			childPropMap := make(ast.SymbolTable)
-			childPropMap[jsxChildrenPropertyName] = childrenPropSymbol
+			childPropMap := ast.NewSymbolTable()
+			childPropMap.Set(jsxChildrenPropertyName, childrenPropSymbol)
 			spread = c.getSpreadType(spread, c.newAnonymousType(attributesSymbol, childPropMap, nil, nil, nil), attributesSymbol, objectFlags, false /*readonly*/)
 		}
 	}
