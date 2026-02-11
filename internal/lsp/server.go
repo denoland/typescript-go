@@ -28,6 +28,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ls/lsconv"
 	"github.com/microsoft/typescript-go/internal/ls/lsutil"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/ata"
 	"github.com/microsoft/typescript-go/internal/sourcemap"
@@ -146,6 +147,7 @@ type DenoProgramEntry struct {
 	userPreferences    *lsutil.UserPreferences
 	formatOptions      *format.FormatCodeSettings
 	vfs                *DenoVFS
+	autoImportRegistry *autoimport.Registry
 }
 
 type DenoProgramEntries struct {
@@ -159,20 +161,22 @@ type DenoServerData struct {
 }
 
 type DenoLanguageServiceHost struct {
-	vfs              *DenoVFS
-	positionEncoding lsproto.PositionEncodingKind
-	userPreferences  *lsutil.UserPreferences
-	formatOptions    *format.FormatCodeSettings
+	vfs                *DenoVFS
+	positionEncoding   lsproto.PositionEncodingKind
+	userPreferences    *lsutil.UserPreferences
+	formatOptions      *format.FormatCodeSettings
+	autoImportRegistry *autoimport.Registry
 }
 
 var _ ls.Host = (*DenoLanguageServiceHost)(nil)
 
-func NewDenoLanguageServiceHost(vfs *DenoVFS, userPreferences *lsutil.UserPreferences, formatOptions *format.FormatCodeSettings) *DenoLanguageServiceHost {
+func NewDenoLanguageServiceHost(vfs *DenoVFS, userPreferences *lsutil.UserPreferences, formatOptions *format.FormatCodeSettings, autoImportRegistry *autoimport.Registry) *DenoLanguageServiceHost {
 	return &DenoLanguageServiceHost{
-		vfs:              vfs,
-		positionEncoding: lsproto.PositionEncodingKindUTF16, // default
-		userPreferences:  userPreferences,
-		formatOptions:    formatOptions,
+		vfs:                vfs,
+		positionEncoding:   lsproto.PositionEncodingKindUTF16, // default
+		userPreferences:    userPreferences,
+		formatOptions:      formatOptions,
+		autoImportRegistry: autoImportRegistry,
 	}
 }
 
@@ -214,8 +218,7 @@ func (h *DenoLanguageServiceHost) GetECMALineInfo(fileName string) *sourcemap.EC
 }
 
 func (h *DenoLanguageServiceHost) AutoImportRegistry() *autoimport.Registry {
-	// Auto-import not supported for Deno host yet
-	return nil
+	return h.autoImportRegistry
 }
 
 // DenoVFS implements vfs.FS by reading files from the client via LSP requests
@@ -255,8 +258,8 @@ func (v *DenoVFS) FileExists(path string) bool {
 
 func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
 	var uri lsproto.DocumentUri
-	if strings.HasPrefix(path, "asset:///") {
-		uri = lsproto.DocumentUri(path)
+	if suffix, found := strings.CutPrefix(path, "asset:///"); found {
+		uri = lsproto.DocumentUri("deno:/asset/" + suffix)
 	} else {
 		uri = lsconv.FileNameToDocumentURI(path)
 	}
@@ -318,6 +321,47 @@ func (v *DenoVFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 
 func (v *DenoVFS) Realpath(path string) string {
 	return path
+}
+
+// denoAutoImportHost is a minimal implementation of autoimport.RegistryCloneHost
+// used to initialize the auto-import registry for Deno projects.
+type denoAutoImportHost struct {
+	vfs         vfs.FS
+	cwd         string
+	projectPath tspath.Path
+	program     *compiler.Program
+}
+
+var _ autoimport.RegistryCloneHost = (*denoAutoImportHost)(nil)
+
+func (h *denoAutoImportHost) FS() vfs.FS {
+	return h.vfs
+}
+
+func (h *denoAutoImportHost) GetCurrentDirectory() string {
+	return h.cwd
+}
+
+func (h *denoAutoImportHost) GetDefaultProject(path tspath.Path) (tspath.Path, *compiler.Program) {
+	return h.projectPath, h.program
+}
+
+func (h *denoAutoImportHost) GetProgramForProject(projectPath tspath.Path) *compiler.Program {
+	if projectPath == h.projectPath {
+		return h.program
+	}
+	return nil
+}
+
+func (h *denoAutoImportHost) GetPackageJson(fileName string) *packagejson.InfoCacheEntry {
+	return nil
+}
+
+func (h *denoAutoImportHost) GetSourceFile(fileName string, path tspath.Path) *ast.SourceFile {
+	return h.program.GetSourceFile(fileName)
+}
+
+func (h *denoAutoImportHost) Dispose() {
 }
 
 type Server struct {
@@ -1032,7 +1076,7 @@ func (o *DenoCrossProjectOrchestrator) GetLanguageServiceForProjectWithFile(ctx 
 		return nil
 	}
 	pe := denoProject.programEntry
-	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
 	return ls.NewLanguageService(pe.projectPath, pe.program, host)
 }
 
@@ -1264,13 +1308,13 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
 			programs = append(programs, pe.program)
 			if firstHost == nil {
-				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
 			}
 		}
 		for _, pe := range s.deno.programEntries.byNotebookUri {
 			programs = append(programs, pe.program)
 			if firstHost == nil {
-				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
 			}
 		}
 		if firstHost == nil {
@@ -1296,7 +1340,7 @@ func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey 
 		return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
 	}
 
-	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions)
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
 	orchestrator := &DenoCrossProjectOrchestrator{
 		server:              s,
 		ctx:                 ctx,
@@ -1334,6 +1378,33 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 	})
 	projectPath := tspath.ToPath(s.cwd, "", denoVFS.UseCaseSensitiveFileNames())
 
+	toPath := func(fileName string) tspath.Path {
+		return tspath.ToPath(fileName, s.cwd, denoVFS.UseCaseSensitiveFileNames())
+	}
+	autoImportRegistry := autoimport.NewRegistry(toPath)
+
+	// Initialize the registry with a project bucket by calling Clone with the open files
+	autoImportHost := &denoAutoImportHost{
+		vfs:         wrappedFS,
+		cwd:         s.cwd,
+		projectPath: projectPath,
+		program:     program,
+	}
+	openFiles := make(map[tspath.Path]string)
+	var firstFilePath tspath.Path
+	for _, file := range projectConfig.Files {
+		fileName := file.FileName()
+		filePath := toPath(fileName)
+		openFiles[filePath] = fileName
+		if firstFilePath == "" {
+			firstFilePath = filePath
+		}
+	}
+	autoImportRegistry, _ = autoImportRegistry.Clone(ctx, autoimport.RegistryChange{
+		OpenFiles:     openFiles,
+		RequestedFile: firstFilePath, // Triggers updateIndexes to build the project bucket
+	}, autoImportHost, nil)
+
 	return &DenoProgramEntry{
 		program:            program,
 		projectPath:        projectPath,
@@ -1343,6 +1414,7 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		userPreferences:    projectConfig.UserPreferences,
 		formatOptions:      projectConfig.FormatOptions,
 		vfs:                denoVFS,
+		autoImportRegistry: autoImportRegistry,
 	}, nil
 }
 
