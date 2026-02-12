@@ -438,7 +438,7 @@ func (fs *sourceFS) FileExists(path string) bool {
 
 // GetAccessibleEntries implements vfs.FS.
 func (fs *sourceFS) GetAccessibleEntries(path string) vfs.Entries {
-	return fs.source.GetAccessibleEntries(path)
+	return fs.source.FS().GetAccessibleEntries(path)
 }
 
 // ReadFile implements vfs.FS.

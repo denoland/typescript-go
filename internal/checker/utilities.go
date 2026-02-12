@@ -235,7 +235,7 @@ func isSyntacticDefault(node *ast.Node) bool {
 }
 
 func hasExportAssignmentSymbol(moduleSymbol *ast.Symbol) bool {
-	return moduleSymbol.Exports[ast.InternalSymbolNameExportEquals] != nil
+	return moduleSymbol.Exports.Get(ast.InternalSymbolNameExportEquals) != nil
 }
 
 func isTypeAlias(node *ast.Node) bool {
@@ -305,9 +305,9 @@ func createSymbolTable(symbols []*ast.Symbol) ast.SymbolTable {
 	if len(symbols) == 0 {
 		return nil
 	}
-	result := make(ast.SymbolTable)
+	result := ast.NewSymbolTable()
 	for _, symbol := range symbols {
-		result[symbol.Name] = symbol
+		result.Set(symbol.Name, symbol)
 	}
 	return result
 }
@@ -1129,7 +1129,7 @@ func isInNameOfExpressionWithTypeArguments(node *ast.Node) bool {
 }
 
 func getIndexSymbolFromSymbolTable(symbolTable ast.SymbolTable) *ast.Symbol {
-	return symbolTable[ast.InternalSymbolNameIndex]
+	return symbolTable.Get(ast.InternalSymbolNameIndex)
 }
 
 // Indicates whether the result of an `Expression` will be unused.
@@ -1599,11 +1599,11 @@ func introducesArgumentsExoticObject(node *ast.Node) bool {
 
 func symbolsToArray(symbols ast.SymbolTable) []*ast.Symbol {
 	var result []*ast.Symbol
-	for id, symbol := range symbols {
+	symbols.Each(func(id string, symbol *ast.Symbol) {
 		if !isReservedMemberName(id) {
 			result = append(result, symbol)
 		}
-	}
+	})
 	return result
 }
 

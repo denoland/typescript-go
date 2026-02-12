@@ -59,6 +59,8 @@ type ModuleSpecifierGenerationHost interface {
 	GetDefaultResolutionModeForFile(file ast.HasFileName) core.ResolutionMode
 	GetResolvedModuleFromModuleSpecifier(file ast.HasFileName, moduleSpecifier *ast.StringLiteralLike) *module.ResolvedModule
 	GetModeForUsageLocation(file ast.HasFileName, moduleSpecifier *ast.StringLiteralLike) core.ResolutionMode
+	IsNodeSourceFile(path tspath.Path) bool
+	GetDenoForkContextInfo() ast.DenoForkContextInfo
 }
 
 type ImportModuleSpecifierPreference string

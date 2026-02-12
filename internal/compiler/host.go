@@ -4,6 +4,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/parser"
 	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
@@ -18,6 +19,9 @@ type CompilerHost interface {
 	Trace(msg *diagnostics.Message, args ...any)
 	GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile
 	GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine
+	MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface
+	IsNodeSourceFile(path tspath.Path) bool
+	GetDenoForkContextInfo() ast.DenoForkContextInfo
 }
 
 var _ CompilerHost = (*compilerHost)(nil)
@@ -75,6 +79,10 @@ func (h *compilerHost) Trace(msg *diagnostics.Message, args ...any) {
 	h.trace(msg, args...)
 }
 
+func (h *compilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return false
+}
+
 func (h *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
 	text, ok := h.FS().ReadFile(opts.FileName)
 	if !ok {
@@ -86,4 +94,12 @@ func (h *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.Sourc
 func (h *compilerHost) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
 	commandLine, _ := tsoptions.GetParsedCommandLineOfConfigFilePath(fileName, path, nil, nil /*optionsRaw*/, h, h.extendedConfigCache)
 	return commandLine
+}
+
+func (h *compilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions, typingsLocation string, projectName string) module.ResolverInterface {
+	return module.NewResolver(host, options, typingsLocation, projectName)
+}
+
+func (h *compilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return ast.DenoForkContextInfo{}
 }

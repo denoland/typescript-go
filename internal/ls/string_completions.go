@@ -839,7 +839,7 @@ func getPatternFromFirstMatchingCondition(target *packagejson.ExportsOrImports, 
 }
 
 func getAmbientModuleCompletions(fragment string, fragmentDirectory string, typeChecker *checker.Checker) []string {
-	ambientModules := typeChecker.GetAmbientModules()
+	ambientModules := typeChecker.GetAmbientModules(nil)
 	var nonRelativeModuleNames []string
 	for _, sym := range ambientModules {
 		moduleName := stringutil.StripQuotes(sym.Name)
@@ -982,7 +982,7 @@ func getSupportedExtensionsForModuleResolution(options *core.CompilerOptions, ch
 	/** file extensions from ambient modules declarations e.g. *.css */
 	var extensions []string
 	if checker != nil {
-		ambientModules := checker.GetAmbientModules()
+		ambientModules := checker.GetAmbientModules(nil)
 		for _, module := range ambientModules {
 			name := stringutil.StripQuotes(module.Name)
 			if !strings.HasPrefix(name, "*.") || strings.Contains(name, "/") {

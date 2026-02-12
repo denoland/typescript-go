@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"math/rand/v2"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/microsoft/typescript-go/internal/api"
 	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/json"
@@ -164,10 +162,6 @@ type Server struct {
 	watchers     collections.SyncSet[project.WatcherID]
 
 	session *project.Session
-
-	// apiSessions holds active API sessions keyed by their ID
-	apiSessions   map[string]*api.Session
-	apiSessionsMu sync.Mutex
 
 	// Test options for initializing session
 	client project.Client
@@ -610,7 +604,6 @@ var handlers = sync.OnceValue(func() handlerMap {
 	registerRequestHandler(handlers, lsproto.CustomStartCPUProfileInfo, (*Server).handleStartCPUProfile)
 	registerRequestHandler(handlers, lsproto.CustomStopCPUProfileInfo, (*Server).handleStopCPUProfile)
 
-	registerRequestHandler(handlers, lsproto.CustomInitializeAPISessionInfo, (*Server).handleInitializeAPISession)
 	return handlers
 })
 
@@ -979,6 +972,7 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 			DebounceDelay:          500 * time.Millisecond,
 			PushDiagnosticsEnabled: !disablePushDiagnostics,
 			Locale:                 s.locale,
+			MakeHost:               project.NewProjectHost,
 		},
 		FS:          s.fs,
 		Logger:      s.logger,
@@ -1263,71 +1257,6 @@ func (s *Server) handleCallHierarchyOutgoingCalls(
 		return lsproto.CallHierarchyOutgoingCallsOrNull{}, err
 	}
 	return languageService.ProvideCallHierarchyOutgoingCalls(ctx, params.Item)
-}
-
-func (s *Server) handleInitializeAPISession(ctx context.Context, params *lsproto.InitializeAPISessionParams, _ *lsproto.RequestMessage) (lsproto.CustomInitializeAPISessionResponse, error) {
-	s.apiSessionsMu.Lock()
-	defer s.apiSessionsMu.Unlock()
-
-	if s.apiSessions == nil {
-		s.apiSessions = make(map[string]*api.Session)
-	}
-
-	var apiSession *api.Session
-	apiSession = api.NewSession(s.session, nil)
-
-	// Use provided pipe path or generate a unique one
-	var pipePath string
-	if params.Pipe != nil && *params.Pipe != "" {
-		pipePath = *params.Pipe
-	} else {
-		pipePath = s.generateAPIPipePath()
-	}
-
-	transport, err := api.NewPipeTransport(pipePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create API transport: %w", err)
-	}
-
-	// Start accepting connections in the background
-	go func() {
-		defer func() {
-			apiSession.Close()
-			s.removeAPISession(apiSession.ID())
-		}()
-
-		rwc, acceptErr := transport.Accept()
-		_ = transport.Close()
-		if acceptErr != nil {
-			s.logger.Errorf("API session %s: failed to accept connection: %v", apiSession.ID(), acceptErr)
-			return
-		}
-
-		conn := api.NewAsyncConn(rwc, apiSession)
-		if apiErr := conn.Run(s.backgroundCtx); apiErr != nil {
-			s.logger.Errorf("API session %s: %v", apiSession.ID(), apiErr)
-		}
-	}()
-
-	s.apiSessions[apiSession.ID()] = apiSession
-
-	return &lsproto.InitializeAPISessionResult{
-		SessionId: apiSession.ID(),
-		Pipe:      pipePath,
-	}, nil
-}
-
-func (s *Server) generateAPIPipePath() string {
-	// Generate a high-entropy path using time and random source
-	now := time.Now().UnixNano()
-	rnd := rand.Uint64()
-	return api.GeneratePipePath(fmt.Sprintf("tsgo-api-%x-%x", now, rnd))
-}
-
-func (s *Server) removeAPISession(id string) {
-	s.apiSessionsMu.Lock()
-	defer s.apiSessionsMu.Unlock()
-	delete(s.apiSessions, id)
 }
 
 // !!! temporary; remove when we have `handleDidChangeConfiguration`/implicit project config support

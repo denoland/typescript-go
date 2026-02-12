@@ -53,6 +53,14 @@ func (t *parseTask) Path() tspath.Path {
 }
 
 func (t *parseTask) load(loader *fileLoader) {
+	// deno: we skip loading the lib.node.d.ts file if the @types/node package has been loaded
+	// This handles cases where lib.node.d.ts is referenced via /// <reference lib="node" />
+	// Check this BEFORE setting loaded=true so the file isn't parsed at all
+	if t.normalizedFilePath == "asset:///lib.node.d.ts" && !loader.shouldLoadNodeTypes.Load() {
+		loader.foundNodeTypes.Store(true)
+		return
+	}
+
 	t.loaded = true
 	if t.isForAutomaticTypeDirective {
 		t.loadAutomaticTypeDirectives(loader)

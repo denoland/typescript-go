@@ -236,10 +236,13 @@ func (e *symbolExtractor) extractFromSymbol(name string, symbol *ast.Symbol, mod
 			*exports = slices.Grow(*exports, len(expression.AsObjectLiteralExpression().Properties.Nodes))
 			for _, prop := range expression.AsObjectLiteralExpression().Properties.Nodes {
 				if ast.IsShorthandPropertyAssignment(prop) || ast.IsPropertyAssignment(prop) && prop.AsPropertyAssignment().Name().Kind == ast.KindIdentifier {
-					export, _ := e.createExport(expression.Symbol().Members[prop.Name().Text()], moduleID, moduleFileName, syntax, file, checkerLease)
-					if export != nil {
-						export.through = name
-						*exports = append(*exports, export)
+					memberSymbol := expression.Symbol().Members[prop.Name().Text()]
+					if memberSymbol != nil {
+						export, _ := e.createExport(memberSymbol, moduleID, moduleFileName, syntax, file, checkerLease)
+						if export != nil {
+							export.through = name
+							*exports = append(*exports, export)
+						}
 					}
 				}
 			}

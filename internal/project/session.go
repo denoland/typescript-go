@@ -51,6 +51,7 @@ type SessionOptions struct {
 	PushDiagnosticsEnabled bool
 	DebounceDelay          time.Duration
 	Locale                 locale.Locale
+	MakeHost               func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
 }
 
 type SessionInit struct {
@@ -127,6 +128,8 @@ type Session struct {
 	diagnosticsRefreshCancel context.CancelFunc
 	diagnosticsRefreshMu     sync.Mutex
 
+	makeHost func(currentDirectory string, project *Project, builder *ProjectCollectionBuilder, logger *logging.LogTree) ProjectHost
+
 	// watches tracks the current watch globs and how many individual WatchedFiles
 	// are using each glob.
 	watches   map[fileSystemWatcherKey]*fileSystemWatcherValue
@@ -188,6 +191,7 @@ func NewSession(init *SessionInit) *Session {
 		initialUserConfig:   lsutil.NewUserConfig(nil),
 		workspaceUserConfig: lsutil.NewUserConfig(nil), // initialize so all `config`s are non-nil
 		pendingATAChanges:   make(map[tspath.Path]*ATAStateChange),
+		makeHost:            init.Options.MakeHost,
 		watches:             make(map[fileSystemWatcherKey]*fileSystemWatcherValue),
 	}
 
