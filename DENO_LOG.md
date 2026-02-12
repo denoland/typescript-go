@@ -4,10 +4,6 @@
 
 Rebased Deno changes onto latest `main` (be25a2b57).
 
-- `git checkout -b rebase/2026-02-11 main`
-- `git merge --squash origin/rebase/2026-01-12`
-  - All 7 commits from `rebase/2026-01-12` squashed into one.
-  - Resolved 11 conflicted files. Main had moved 127 commits ahead.
 - Notable conflict resolutions:
   - `internal/api/`: main restructured the API with StdioServer/Transport/Protocol/
     Session/Connection architecture. Kept the Deno fork's Server with MessagePack
