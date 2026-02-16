@@ -23416,8 +23416,6 @@ func unmarshalResult(method Method, data []byte) (any, error) {
 		return unmarshalValue[ExecuteCommandResponse](data)
 	case MethodWorkspaceApplyEdit:
 		return unmarshalValue[ApplyWorkspaceEditResponse](data)
-	case MethodDenoHostGetDocument:
-		return unmarshalValue[DenoDocumentData](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23813,9 +23811,7 @@ const (
 	MethodCancelRequest                  Method = "$/cancelRequest"
 	MethodProgress                       Method = "$/progress"
 	MethodDenoRequest                    Method = "deno/request"
-
-	// Deno Host methods
-	MethodDenoHostGetDocument Method = "deno/host/getDocument"
+	MethodDenoCallback                   Method = "deno/callback"
 )
 
 // Request response types
@@ -24351,26 +24347,26 @@ type DenoWorkspaceChange struct {
 	NewConfiguration *DenoWorkspaceConfig `json:"newConfiguration,omitempty"`
 }
 
-type DenoLanguageServiceMethodRequest struct {
+type DenoLanguageServiceMethodParams struct {
 	Name               string  `json:"name"`
 	Args               []any   `json:"args"`
 	CompilerOptionsKey string  `json:"compilerOptionsKey"`
 	NotebookUri        *string `json:"notebookUri,omitempty"`
 }
 
-type DenoGetAmbientModulesRequest struct {
+type DenoGetAmbientModulesParams struct {
 	CompilerOptionsKey string  `json:"compilerOptionsKey"`
 	NotebookUri        *string `json:"notebookUri,omitempty"`
 }
 
-type DenoWorkspaceSymbolRequest struct {
+type DenoWorkspaceSymbolParams struct {
 	Query string `json:"query"`
 }
 
 type DenoRequest struct {
-	LanguageServiceMethod *DenoLanguageServiceMethodRequest `json:"languageServiceMethod,omitempty"`
-	GetAmbientModules     *DenoGetAmbientModulesRequest     `json:"getAmbientModules,omitempty"`
-	WorkspaceSymbol       *DenoWorkspaceSymbolRequest       `json:"workspaceSymbol,omitempty"`
+	LanguageServiceMethod *DenoLanguageServiceMethodParams `json:"languageServiceMethod,omitempty"`
+	GetAmbientModules     *DenoGetAmbientModulesParams     `json:"getAmbientModules,omitempty"`
+	WorkspaceSymbol       *DenoWorkspaceSymbolParams       `json:"workspaceSymbol,omitempty"`
 }
 
 type DenoRequestParams struct {
@@ -24380,16 +24376,14 @@ type DenoRequestParams struct {
 
 var DenoRequestInfo = RequestInfo[*DenoRequestParams, any]{Method: MethodDenoRequest}
 
-// Deno Host request types
+// Deno callback types
 
-type DenoHostBaseParams struct {
-	CompilerOptionsKey string  `json:"compilerOptionsKey"`
-	NotebookUri        *string `json:"notebookUri,omitempty"`
+type DenoGetDocumentParams struct {
+	Uri DocumentUri `json:"uri"`
 }
 
-type DenoHostGetDocumentParams struct {
-	DenoHostBaseParams
-	Uri DocumentUri `json:"uri"`
+type DenoCallbackParams struct {
+	GetDocument *DenoGetDocumentParams `json:"getDocument,omitempty"`
 }
 
 type DenoDocumentData struct {
