@@ -21,7 +21,6 @@ import (
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
-	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/format"
 	"github.com/microsoft/typescript-go/internal/jsonutil"
 	"github.com/microsoft/typescript-go/internal/locale"
@@ -30,6 +29,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ls/lsconv"
 	"github.com/microsoft/typescript-go/internal/ls/lsutil"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/ata"
@@ -158,9 +158,9 @@ type DenoProgramEntries struct {
 }
 
 type DenoServerData struct {
-	programEntries     DenoProgramEntries
-	documentCache      map[lsproto.DocumentUri]*lsproto.DenoDocumentData
-	documentCacheMu    sync.RWMutex
+	programEntries  DenoProgramEntries
+	documentCache   map[lsproto.DocumentUri]*lsproto.DenoDocumentData
+	documentCacheMu sync.RWMutex
 }
 
 type DenoLanguageServiceHost struct {
@@ -407,18 +407,18 @@ func (h *denoCompilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
 func (h *denoCompilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions,
 	typingsLocation string, projectName string) module.ResolverInterface {
 	baseResolver := h.inner.MakeResolver(host, options, typingsLocation, projectName)
-	return &denoResolverWrapper{inner: baseResolver, server: h.server}
+	return &denoResolver{inner: baseResolver, server: h.server}
 }
 
-// denoResolverWrapper wraps a ResolverInterface to intercept module resolution for Deno LSP
-type denoResolverWrapper struct {
+// denoResolver wraps a ResolverInterface to intercept module resolution for Deno LSP
+type denoResolver struct {
 	inner  module.ResolverInterface
 	server *Server
 }
 
-var _ module.ResolverInterface = (*denoResolverWrapper)(nil)
+var _ module.ResolverInterface = (*denoResolver)(nil)
 
-func (r *denoResolverWrapper) ResolveModuleName(moduleName string, containingFile string,
+func (r *denoResolver) ResolveModuleName(moduleName string, containingFile string,
 	importAttributeType *string, resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []module.DiagAndArgs) {
 	// Hook point: Call Deno's custom resolution via LSP or callback
@@ -426,28 +426,28 @@ func (r *denoResolverWrapper) ResolveModuleName(moduleName string, containingFil
 	return r.inner.ResolveModuleName(moduleName, containingFile, importAttributeType, resolutionMode, redirectedReference)
 }
 
-func (r *denoResolverWrapper) ResolveTypeReferenceDirective(name string, containingFile string,
+func (r *denoResolver) ResolveTypeReferenceDirective(name string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []module.DiagAndArgs) {
 	// Hook point: Call Deno's custom resolution
 	return r.inner.ResolveTypeReferenceDirective(name, containingFile, resolutionMode, redirectedReference)
 }
 
-func (r *denoResolverWrapper) ResolvePackageDirectory(moduleName string, containingFile string,
+func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) *module.ResolvedModule {
 	return r.inner.ResolvePackageDirectory(moduleName, containingFile, resolutionMode, redirectedReference)
 }
 
-func (r *denoResolverWrapper) ResolveJsxImportSource(referrer string) string {
+func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
 	return r.inner.ResolveJsxImportSource(referrer)
 }
 
-func (r *denoResolverWrapper) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
+func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
 	return r.inner.GetPackageScopeForPath(directory)
 }
 
-func (r *denoResolverWrapper) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+func (r *denoResolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
 	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
 }
 
