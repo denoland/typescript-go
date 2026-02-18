@@ -24382,14 +24382,28 @@ type DenoGetDocumentParams struct {
 	Uri DocumentUri `json:"uri"`
 }
 
-type DenoCallbackParams struct {
-	GetDocument *DenoGetDocumentParams `json:"getDocument,omitempty"`
-}
-
 type DenoDocumentData struct {
 	Text       *string        `json:"text"`
 	LineStarts []core.TextPos `json:"lineStarts,omitempty"`
 	AsciiOnly  bool           `json:"asciiOnly,omitempty"`
+}
+
+type DenoResolveModuleNameParams struct {
+	ModuleName          string      `json:"moduleName"`
+	ReferrerUri         DocumentUri `json:"referrerUri"`
+	ImportAttributeType *string     `json:"importAttributeType,omitempty"`
+	ResolutionMode      int32       `json:"resolutionMode"`
+	CompilerOptionsKey  string      `json:"compilerOptionsKey"`
+}
+
+type DenoResolution struct {
+	Uri       DocumentUri `json:"uri"`
+	Extension string      `json:"extension"`
+}
+
+type DenoCallbackParams struct {
+	GetDocument       *DenoGetDocumentParams       `json:"getDocument,omitempty"`
+	ResolveModuleName *DenoResolveModuleNameParams `json:"resolveModuleName,omitempty"`
 }
 
 // Union types

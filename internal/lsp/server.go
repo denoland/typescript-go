@@ -252,13 +252,15 @@ func (v *DenoVFS) FileExists(path string) bool {
 	return ok
 }
 
-func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
-	var uri lsproto.DocumentUri
+func denoPathToDocumentUri(path string) lsproto.DocumentUri {
 	if suffix, found := strings.CutPrefix(path, "asset:///"); found {
-		uri = lsproto.DocumentUri("deno:/asset/" + suffix)
-	} else {
-		uri = lsconv.FileNameToDocumentURI(path)
+		return lsproto.DocumentUri("deno:/asset/" + suffix)
 	}
+	return lsconv.FileNameToDocumentURI(path)
+}
+
+func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
+	uri := denoPathToDocumentUri(path)
 	v.server.deno.documentCacheMu.Lock()
 	defer v.server.deno.documentCacheMu.Unlock()
 	if v.server.deno.documentCache != nil {
@@ -365,8 +367,11 @@ func (h *denoAutoImportHost) Dispose() {
 
 // denoCompilerHost wraps a CompilerHost to intercept resolver creation for Deno LSP
 type denoCompilerHost struct {
-	inner  compiler.CompilerHost
-	server *Server
+	inner              compiler.CompilerHost
+	server             *Server
+	ctx                context.Context
+	compilerOptionsKey string
+	notebookUri        *string
 }
 
 var _ compiler.CompilerHost = (*denoCompilerHost)(nil)
@@ -407,13 +412,22 @@ func (h *denoCompilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
 func (h *denoCompilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions,
 	typingsLocation string, projectName string) module.ResolverInterface {
 	baseResolver := h.inner.MakeResolver(host, options, typingsLocation, projectName)
-	return &denoResolver{inner: baseResolver, server: h.server}
+	return &denoResolver{
+		inner:              baseResolver,
+		server:             h.server,
+		ctx:                h.ctx,
+		compilerOptionsKey: h.compilerOptionsKey,
+		notebookUri:        h.notebookUri,
+	}
 }
 
 // denoResolver wraps a ResolverInterface to intercept module resolution for Deno LSP
 type denoResolver struct {
-	inner  module.ResolverInterface
-	server *Server
+	inner              module.ResolverInterface
+	server             *Server
+	ctx                context.Context
+	compilerOptionsKey string
+	notebookUri        *string
 }
 
 var _ module.ResolverInterface = (*denoResolver)(nil)
@@ -421,9 +435,33 @@ var _ module.ResolverInterface = (*denoResolver)(nil)
 func (r *denoResolver) ResolveModuleName(moduleName string, containingFile string,
 	importAttributeType *string, resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []module.DiagAndArgs) {
-	// Hook point: Call Deno's custom resolution via LSP or callback
-	// if result := r.server.denoResolveModule(...); result != nil { return result, nil }
-	return r.inner.ResolveModuleName(moduleName, containingFile, importAttributeType, resolutionMode, redirectedReference)
+	params := lsproto.DenoCallbackParams{
+		ResolveModuleName: &lsproto.DenoResolveModuleNameParams{
+			ModuleName:          moduleName,
+			ReferrerUri:         denoPathToDocumentUri(containingFile),
+			ImportAttributeType: importAttributeType,
+			ResolutionMode:      int32(resolutionMode),
+			CompilerOptionsKey:  r.compilerOptionsKey,
+		},
+	}
+	var response *lsproto.DenoResolution
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil {
+		return &module.ResolvedModule{
+			ResolvedFileName: "",
+			Extension:        "",
+		}, nil
+	}
+	if response == nil {
+		return &module.ResolvedModule{
+			ResolvedFileName: "",
+			Extension:        "",
+		}, nil
+	}
+	return &module.ResolvedModule{
+		ResolvedFileName: response.Uri.FileName(),
+		Extension:        response.Extension,
+	}, nil
 }
 
 func (r *denoResolver) ResolveTypeReferenceDirective(name string, containingFile string,
@@ -1258,7 +1296,13 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 							nil,
 						)
 						// Wrap the host to intercept resolution
-						newHost := &denoCompilerHost{inner: baseHost, server: s}
+						newHost := &denoCompilerHost{
+							inner:              baseHost,
+							server:             s,
+							ctx:                pe.vfs.ctx,
+							compilerOptionsKey: pe.compilerOptionsKey,
+							notebookUri:        pe.notebookUri,
+						}
 						newProgram, _ := pe.program.UpdateProgram(filePath, newHost)
 						pe.program = newProgram
 					}
@@ -1455,7 +1499,13 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		nil, // trace
 	)
 	// Wrap the host to intercept resolution
-	compilerHost := &denoCompilerHost{inner: baseHost, server: s}
+	compilerHost := &denoCompilerHost{
+		inner:              baseHost,
+		server:             s,
+		ctx:                ctx,
+		compilerOptionsKey: compilerOptionsKey,
+		notebookUri:        notebookUri,
+	}
 	fileNames := make([]string, len(projectConfig.Files))
 	for i, file := range projectConfig.Files {
 		fileNames[i] = file.FileName()
