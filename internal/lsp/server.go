@@ -8,7 +8,6 @@ import (
 	"iter"
 	"runtime/debug"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -252,15 +251,8 @@ func (v *DenoVFS) FileExists(path string) bool {
 	return ok
 }
 
-func denoPathToDocumentUri(path string) lsproto.DocumentUri {
-	if suffix, found := strings.CutPrefix(path, "asset:///"); found {
-		return lsproto.DocumentUri("deno:/asset/" + suffix)
-	}
-	return lsconv.FileNameToDocumentURI(path)
-}
-
 func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
-	uri := denoPathToDocumentUri(path)
+	uri := lsconv.FileNameToDocumentURI(path)
 	v.server.deno.documentCacheMu.Lock()
 	defer v.server.deno.documentCacheMu.Unlock()
 	if v.server.deno.documentCache != nil {
@@ -438,7 +430,7 @@ func (r *denoResolver) ResolveModuleName(moduleName string, containingFile strin
 	params := lsproto.DenoCallbackParams{
 		ResolveModuleName: &lsproto.DenoResolveModuleNameParams{
 			ModuleName:          moduleName,
-			ReferrerUri:         denoPathToDocumentUri(containingFile),
+			ReferrerUri:         lsconv.FileNameToDocumentURI(containingFile),
 			ImportAttributeType: importAttributeType,
 			ResolutionMode:      int32(resolutionMode),
 			CompilerOptionsKey:  r.compilerOptionsKey,
