@@ -459,25 +459,29 @@ func (r *denoResolver) ResolveModuleName(moduleName string, containingFile strin
 func (r *denoResolver) ResolveTypeReferenceDirective(name string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []module.DiagAndArgs) {
-	// Hook point: Call Deno's custom resolution
+	// TODO(nayeemrmn): Implement callback.
 	return r.inner.ResolveTypeReferenceDirective(name, containingFile, resolutionMode, redirectedReference)
 }
 
 func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) *module.ResolvedModule {
+	// TODO(nayeemrmn): Implement callback.
 	return r.inner.ResolvePackageDirectory(moduleName, containingFile, resolutionMode, redirectedReference)
 }
 
 func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
+	// TODO(nayeemrmn): Implement callback.
 	return r.inner.ResolveJsxImportSource(referrer)
 }
 
 func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
+	// TODO(nayeemrmn): Implement callback.
 	return r.inner.GetPackageScopeForPath(directory)
 }
 
 func (r *denoResolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	// TODO(nayeemrmn): Implement callback.
 	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
 }
 
@@ -1270,6 +1274,8 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 			}
 		} else {
 			// Handle file changes by updating affected programs
+			// TODO(nayeemrmn): ParsedOptions::FileNames should be updated here
+			// depending on change kinds and in some other cases.
 			for _, fileChange := range params.WorkspaceChange.FileChanges {
 				// Clear document cache entry for changed file
 				s.deno.documentCacheMu.Lock()
