@@ -13,16 +13,27 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
+	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/bundled"
 	"github.com/microsoft/typescript-go/internal/collections"
+	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/diagnostics"
+	"github.com/microsoft/typescript-go/internal/format"
 	"github.com/microsoft/typescript-go/internal/jsonutil"
 	"github.com/microsoft/typescript-go/internal/locale"
 	"github.com/microsoft/typescript-go/internal/ls"
+	"github.com/microsoft/typescript-go/internal/ls/autoimport"
 	"github.com/microsoft/typescript-go/internal/ls/lsconv"
 	"github.com/microsoft/typescript-go/internal/ls/lsutil"
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+	"github.com/microsoft/typescript-go/internal/module"
+	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/ata"
+	"github.com/microsoft/typescript-go/internal/sourcemap"
+	"github.com/microsoft/typescript-go/internal/tsoptions"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"golang.org/x/sync/errgroup"
@@ -128,6 +139,352 @@ var (
 	_ Writer = (*lspWriter)(nil)
 )
 
+type DenoProgramEntry struct {
+	program            *compiler.Program
+	projectPath        tspath.Path
+	compilerOptionsKey string
+	notebookUri        *string
+	compilerOptions    *core.CompilerOptions
+	userPreferences    *lsutil.UserPreferences
+	formatOptions      *format.FormatCodeSettings
+	vfs                *DenoVFS
+	autoImportRegistry *autoimport.Registry
+}
+
+type DenoProgramEntries struct {
+	byCompilerOptionsKey map[string]*DenoProgramEntry
+	byNotebookUri        map[string]*DenoProgramEntry
+}
+
+type DenoServerData struct {
+	programEntries  DenoProgramEntries
+	documentCache   map[lsproto.DocumentUri]*lsproto.DenoDocumentData
+	documentCacheMu sync.RWMutex
+}
+
+type DenoLanguageServiceHost struct {
+	vfs                *DenoVFS
+	positionEncoding   lsproto.PositionEncodingKind
+	userPreferences    *lsutil.UserPreferences
+	formatOptions      *format.FormatCodeSettings
+	autoImportRegistry *autoimport.Registry
+}
+
+var _ ls.Host = (*DenoLanguageServiceHost)(nil)
+
+func NewDenoLanguageServiceHost(vfs *DenoVFS, userPreferences *lsutil.UserPreferences, formatOptions *format.FormatCodeSettings, autoImportRegistry *autoimport.Registry) *DenoLanguageServiceHost {
+	return &DenoLanguageServiceHost{
+		vfs:                vfs,
+		positionEncoding:   lsproto.PositionEncodingKindUTF16, // default
+		userPreferences:    userPreferences,
+		formatOptions:      formatOptions,
+		autoImportRegistry: autoImportRegistry,
+	}
+}
+
+func (h *DenoLanguageServiceHost) UseCaseSensitiveFileNames() bool {
+	return true
+}
+
+func (h *DenoLanguageServiceHost) ReadFile(path string) (contents string, ok bool) {
+	return h.vfs.ReadFile(path)
+}
+
+func (h *DenoLanguageServiceHost) Converters() *lsconv.Converters {
+	return lsconv.NewConverters(h.positionEncoding, h.getLineMap)
+}
+
+func (h *DenoLanguageServiceHost) getLineMap(fileName string) *lsconv.LSPLineMap {
+	if data := h.vfs.GetDocument(fileName); data != nil {
+		return &lsconv.LSPLineMap{
+			LineStarts: data.LineStarts,
+			AsciiOnly:  data.AsciiOnly,
+		}
+	}
+	return &lsconv.LSPLineMap{}
+}
+
+func (h *DenoLanguageServiceHost) UserPreferences() *lsutil.UserPreferences {
+	return h.userPreferences
+}
+
+func (h *DenoLanguageServiceHost) FormatOptions() *format.FormatCodeSettings {
+	return h.formatOptions
+}
+
+func (h *DenoLanguageServiceHost) GetECMALineInfo(fileName string) *sourcemap.ECMALineInfo {
+	if data := h.vfs.GetDocument(fileName); data != nil {
+		return sourcemap.CreateECMALineInfo(*data.Text, data.LineStarts)
+	}
+	return nil
+}
+
+func (h *DenoLanguageServiceHost) AutoImportRegistry() *autoimport.Registry {
+	return h.autoImportRegistry
+}
+
+// DenoVFS implements vfs.FS by reading files from the client via LSP requests
+type DenoVFS struct {
+	server             *Server
+	ctx                context.Context
+	compilerOptionsKey string
+	notebookUri        *string
+}
+
+var _ vfs.FS = (*DenoVFS)(nil)
+
+func NewDenoVFS(server *Server, ctx context.Context, compilerOptionsKey string, notebookUri *string) *DenoVFS {
+	return &DenoVFS{
+		server:             server,
+		ctx:                ctx,
+		compilerOptionsKey: compilerOptionsKey,
+		notebookUri:        notebookUri,
+	}
+}
+
+func (v *DenoVFS) UseCaseSensitiveFileNames() bool {
+	return true
+}
+
+func (v *DenoVFS) FileExists(path string) bool {
+	_, ok := v.ReadFile(path)
+	return ok
+}
+
+func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
+	uri := lsconv.FileNameToDocumentURI(path)
+	v.server.deno.documentCacheMu.Lock()
+	defer v.server.deno.documentCacheMu.Unlock()
+	if v.server.deno.documentCache != nil {
+		if data, ok := v.server.deno.documentCache[uri]; ok {
+			return data
+		}
+	}
+	params := lsproto.DenoCallbackParams{
+		GetDocument: &lsproto.DenoGetDocumentParams{
+			Uri: uri,
+		},
+	}
+	var response lsproto.DenoDocumentData
+	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil || response.Text == nil {
+		return nil
+	}
+	if v.server.deno.documentCache != nil {
+		v.server.deno.documentCache[uri] = &response
+	}
+	return &response
+}
+
+func (v *DenoVFS) ReadFile(path string) (contents string, ok bool) {
+	if data := v.GetDocument(path); data != nil {
+		return *data.Text, true
+	}
+	return "", false
+}
+
+func (v *DenoVFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+	return fmt.Errorf("DenoVFS does not support WriteFile")
+}
+
+func (v *DenoVFS) Remove(path string) error {
+	return fmt.Errorf("DenoVFS does not support Remove")
+}
+
+func (v *DenoVFS) Chtimes(path string, aTime time.Time, mTime time.Time) error {
+	return fmt.Errorf("DenoVFS does not support Chtimes")
+}
+
+func (v *DenoVFS) DirectoryExists(path string) bool {
+	// Directories are managed by the client
+	return false
+}
+
+func (v *DenoVFS) GetAccessibleEntries(path string) vfs.Entries {
+	return vfs.Entries{}
+}
+
+func (v *DenoVFS) Stat(path string) vfs.FileInfo {
+	return nil
+}
+
+func (v *DenoVFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
+	return fmt.Errorf("DenoVFS does not support WalkDir")
+}
+
+func (v *DenoVFS) Realpath(path string) string {
+	return path
+}
+
+// denoAutoImportHost is a minimal implementation of autoimport.RegistryCloneHost
+// used to initialize the auto-import registry for Deno projects.
+type denoAutoImportHost struct {
+	vfs         vfs.FS
+	cwd         string
+	projectPath tspath.Path
+	program     *compiler.Program
+}
+
+var _ autoimport.RegistryCloneHost = (*denoAutoImportHost)(nil)
+
+func (h *denoAutoImportHost) FS() vfs.FS {
+	return h.vfs
+}
+
+func (h *denoAutoImportHost) GetCurrentDirectory() string {
+	return h.cwd
+}
+
+func (h *denoAutoImportHost) GetDefaultProject(path tspath.Path) (tspath.Path, *compiler.Program) {
+	return h.projectPath, h.program
+}
+
+func (h *denoAutoImportHost) GetProgramForProject(projectPath tspath.Path) *compiler.Program {
+	if projectPath == h.projectPath {
+		return h.program
+	}
+	return nil
+}
+
+func (h *denoAutoImportHost) GetPackageJson(fileName string) *packagejson.InfoCacheEntry {
+	return nil
+}
+
+func (h *denoAutoImportHost) GetSourceFile(fileName string, path tspath.Path) *ast.SourceFile {
+	return h.program.GetSourceFile(fileName)
+}
+
+func (h *denoAutoImportHost) Dispose() {
+}
+
+// denoCompilerHost wraps a CompilerHost to intercept resolver creation for Deno LSP
+type denoCompilerHost struct {
+	inner              compiler.CompilerHost
+	server             *Server
+	ctx                context.Context
+	compilerOptionsKey string
+	notebookUri        *string
+}
+
+var _ compiler.CompilerHost = (*denoCompilerHost)(nil)
+
+func (h *denoCompilerHost) FS() vfs.FS {
+	return h.inner.FS()
+}
+
+func (h *denoCompilerHost) DefaultLibraryPath() string {
+	return h.inner.DefaultLibraryPath()
+}
+
+func (h *denoCompilerHost) GetCurrentDirectory() string {
+	return h.inner.GetCurrentDirectory()
+}
+
+func (h *denoCompilerHost) Trace(msg *diagnostics.Message, args ...any) {
+	h.inner.Trace(msg, args...)
+}
+
+func (h *denoCompilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
+	return h.inner.GetSourceFile(opts)
+}
+
+func (h *denoCompilerHost) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
+	return h.inner.GetResolvedProjectReference(fileName, path)
+}
+
+func (h *denoCompilerHost) IsNodeSourceFile(path tspath.Path) bool {
+	return h.inner.IsNodeSourceFile(path)
+}
+
+func (h *denoCompilerHost) GetDenoForkContextInfo() ast.DenoForkContextInfo {
+	return h.inner.GetDenoForkContextInfo()
+}
+
+// MakeResolver overrides the inner host's MakeResolver to return a wrapped resolver
+func (h *denoCompilerHost) MakeResolver(host module.ResolutionHost, options *core.CompilerOptions,
+	typingsLocation string, projectName string) module.ResolverInterface {
+	baseResolver := h.inner.MakeResolver(host, options, typingsLocation, projectName)
+	return &denoResolver{
+		inner:              baseResolver,
+		server:             h.server,
+		ctx:                h.ctx,
+		compilerOptionsKey: h.compilerOptionsKey,
+		notebookUri:        h.notebookUri,
+	}
+}
+
+// denoResolver wraps a ResolverInterface to intercept module resolution for Deno LSP
+type denoResolver struct {
+	inner              module.ResolverInterface
+	server             *Server
+	ctx                context.Context
+	compilerOptionsKey string
+	notebookUri        *string
+}
+
+var _ module.ResolverInterface = (*denoResolver)(nil)
+
+func (r *denoResolver) ResolveModuleName(moduleName string, containingFile string,
+	importAttributeType *string, resolutionMode core.ResolutionMode,
+	redirectedReference module.ResolvedProjectReference) (*module.ResolvedModule, []module.DiagAndArgs) {
+	params := lsproto.DenoCallbackParams{
+		ResolveModuleName: &lsproto.DenoResolveModuleNameParams{
+			ModuleName:          moduleName,
+			ReferrerUri:         lsconv.FileNameToDocumentURI(containingFile),
+			ImportAttributeType: importAttributeType,
+			ResolutionMode:      int32(resolutionMode),
+			CompilerOptionsKey:  r.compilerOptionsKey,
+		},
+	}
+	var response *lsproto.DenoResolution
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil {
+		return &module.ResolvedModule{
+			ResolvedFileName: "",
+			Extension:        "",
+		}, nil
+	}
+	if response == nil {
+		return &module.ResolvedModule{
+			ResolvedFileName: "",
+			Extension:        "",
+		}, nil
+	}
+	return &module.ResolvedModule{
+		ResolvedFileName: response.Uri.FileName(),
+		Extension:        response.Extension,
+	}, nil
+}
+
+func (r *denoResolver) ResolveTypeReferenceDirective(name string, containingFile string,
+	resolutionMode core.ResolutionMode,
+	redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []module.DiagAndArgs) {
+	// TODO(nayeemrmn): Implement callback.
+	return r.inner.ResolveTypeReferenceDirective(name, containingFile, resolutionMode, redirectedReference)
+}
+
+func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile string,
+	resolutionMode core.ResolutionMode,
+	redirectedReference module.ResolvedProjectReference) *module.ResolvedModule {
+	// TODO(nayeemrmn): Implement callback.
+	return r.inner.ResolvePackageDirectory(moduleName, containingFile, resolutionMode, redirectedReference)
+}
+
+func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
+	// TODO(nayeemrmn): Implement callback.
+	return r.inner.ResolveJsxImportSource(referrer)
+}
+
+func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
+	// TODO(nayeemrmn): Implement callback.
+	return r.inner.GetPackageScopeForPath(directory)
+}
+
+func (r *denoResolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
+	// TODO(nayeemrmn): Implement callback.
+	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
+}
+
 type Server struct {
 	r Reader
 	w Writer
@@ -173,6 +530,8 @@ type Server struct {
 	parseCache *project.ParseCache
 
 	npmInstall func(cwd string, args []string) ([]byte, error)
+
+	deno DenoServerData
 }
 
 func (s *Server) Session() *project.Session { return s.session }
@@ -468,6 +827,46 @@ func sendClientRequest[Req, Resp any](ctx context.Context, s *Server, info lspro
 	}
 }
 
+// sendRequestSync sends a request to the client and waits for the response, unmarshaling into result
+func (s *Server) sendRequestSync(ctx context.Context, method lsproto.Method, params any, result any) error {
+	id := lsproto.NewIDString(fmt.Sprintf("ts%d", s.clientSeq.Add(1)))
+	req := &lsproto.RequestMessage{
+		ID:     id,
+		Method: method,
+		Params: params,
+	}
+
+	responseChan := make(chan *lsproto.ResponseMessage, 1)
+	s.pendingServerRequestsMu.Lock()
+	s.pendingServerRequests[*id] = responseChan
+	s.pendingServerRequestsMu.Unlock()
+
+	s.outgoingQueue <- req.Message()
+
+	select {
+	case <-ctx.Done():
+		s.pendingServerRequestsMu.Lock()
+		defer s.pendingServerRequestsMu.Unlock()
+		if respChan, ok := s.pendingServerRequests[*id]; ok {
+			close(respChan)
+			delete(s.pendingServerRequests, *id)
+		}
+		return ctx.Err()
+	case resp := <-responseChan:
+		if resp.Error != nil {
+			return fmt.Errorf("request failed: %s", resp.Error.String())
+		}
+		if result != nil && resp.Result != nil {
+			raw, ok := resp.Result.(jsontext.Value)
+			if !ok {
+				return fmt.Errorf("expected jsontext.Value, got %T", resp.Result)
+			}
+			return json.Unmarshal(raw, result)
+		}
+		return nil
+	}
+}
+
 func (s *Server) sendResult(id *lsproto.ID, result any) {
 	s.sendResponse(&lsproto.ResponseMessage{
 		ID:     id,
@@ -558,6 +957,8 @@ var handlers = sync.OnceValue(func() handlerMap {
 	registerRequestHandler(handlers, lsproto.WorkspaceSymbolInfo, (*Server).handleWorkspaceSymbol)
 	registerRequestHandler(handlers, lsproto.CompletionItemResolveInfo, (*Server).handleCompletionItemResolve)
 	registerRequestHandler(handlers, lsproto.CodeLensResolveInfo, (*Server).handleCodeLensResolve)
+
+	registerRequestHandler(handlers, lsproto.DenoRequestInfo, (*Server).handleDenoRequest)
 
 	return handlers
 })
@@ -748,6 +1149,416 @@ func (s *Server) recover(req *lsproto.RequestMessage) {
 			s.logger.Error("unhandled panic in notification", req.Method, r)
 		}
 	}
+}
+
+type DenoLanguageServiceProject struct {
+	programEntry *DenoProgramEntry
+}
+
+func (p DenoLanguageServiceProject) Id() tspath.Path {
+	return p.programEntry.projectPath
+}
+
+func (p DenoLanguageServiceProject) GetProgram() *compiler.Program {
+	return p.programEntry.program
+}
+
+func (p DenoLanguageServiceProject) HasFile(fileName string) bool {
+	path := tspath.ToPath(fileName, p.programEntry.program.GetCurrentDirectory(), p.programEntry.program.Host().FS().UseCaseSensitiveFileNames())
+	return p.programEntry.program.GetSourceFileByPath(path) != nil
+}
+
+type DenoCrossProjectOrchestrator struct {
+	server              *Server
+	ctx                 context.Context
+	defaultProgramEntry *DenoProgramEntry
+	defaultHost         *DenoLanguageServiceHost
+}
+
+func (o *DenoCrossProjectOrchestrator) GetDefaultProject() ls.Project {
+	return DenoLanguageServiceProject{programEntry: o.defaultProgramEntry}
+}
+
+func (o *DenoCrossProjectOrchestrator) GetAllProjectsForInitialRequest() []ls.Project {
+	entries := o.server.deno.programEntries
+	projects := make([]ls.Project, 0, len(entries.byCompilerOptionsKey)+len(entries.byNotebookUri))
+	for _, pe := range entries.byCompilerOptionsKey {
+		projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+	}
+	for _, pe := range entries.byNotebookUri {
+		projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+	}
+	return projects
+}
+
+func (o *DenoCrossProjectOrchestrator) GetLanguageServiceForProjectWithFile(ctx context.Context, project ls.Project, uri lsproto.DocumentUri) *ls.LanguageService {
+	denoProject, ok := project.(DenoLanguageServiceProject)
+	if !ok {
+		return nil
+	}
+	pe := denoProject.programEntry
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
+	return ls.NewLanguageService(pe.projectPath, pe.program, host)
+}
+
+func (o *DenoCrossProjectOrchestrator) GetProjectsForFile(ctx context.Context, uri lsproto.DocumentUri) ([]ls.Project, error) {
+	fileName := uri.FileName()
+	var projects []ls.Project
+	for _, pe := range o.server.deno.programEntries.byCompilerOptionsKey {
+		project := DenoLanguageServiceProject{programEntry: pe}
+		if project.HasFile(fileName) {
+			projects = append(projects, project)
+		}
+	}
+	for _, pe := range o.server.deno.programEntries.byNotebookUri {
+		project := DenoLanguageServiceProject{programEntry: pe}
+		if project.HasFile(fileName) {
+			projects = append(projects, project)
+		}
+	}
+	if len(projects) == 0 {
+		// Fall back to default project if no project contains the file
+		return []ls.Project{o.GetDefaultProject()}, nil
+	}
+	return projects, nil
+}
+
+func (o *DenoCrossProjectOrchestrator) GetProjectsLoadingProjectTree(ctx context.Context, requestedProjectTrees *collections.Set[tspath.Path]) iter.Seq[ls.Project] {
+	return func(yield func(ls.Project) bool) {
+		for _, pe := range o.server.deno.programEntries.byCompilerOptionsKey {
+			if requestedProjectTrees != nil && !requestedProjectTrees.Has(pe.projectPath) {
+				continue
+			}
+			if !yield(DenoLanguageServiceProject{programEntry: pe}) {
+				return
+			}
+		}
+		for _, pe := range o.server.deno.programEntries.byNotebookUri {
+			if requestedProjectTrees != nil && !requestedProjectTrees.Has(pe.projectPath) {
+				continue
+			}
+			if !yield(DenoLanguageServiceProject{programEntry: pe}) {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequestParams, _ *lsproto.RequestMessage) (any, error) {
+	if params.WorkspaceChange != nil {
+		if params.WorkspaceChange.NewConfiguration != nil {
+			// Clear document cache on new configuration
+			s.deno.documentCacheMu.Lock()
+			s.deno.documentCache = make(map[lsproto.DocumentUri]*lsproto.DenoDocumentData)
+			s.deno.documentCacheMu.Unlock()
+
+			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
+			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByNotebookUri))
+			for key, projectConfig := range params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey {
+				entry, err := s.createDenoProgramEntry(ctx, key, nil, projectConfig)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to create program entry for key %s: %w", key, err)
+				}
+				byCompilerOptionsKey[key] = entry
+			}
+			for notebookUri, projectConfig := range params.WorkspaceChange.NewConfiguration.ByNotebookUri {
+				entry, err := s.createDenoProgramEntry(ctx, projectConfig.CompilerOptionsKey, &notebookUri, projectConfig)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to create program entry for notebook %s: %w", notebookUri, err)
+				}
+				byNotebookUri[notebookUri] = entry
+			}
+			s.deno.programEntries = DenoProgramEntries{
+				byCompilerOptionsKey: byCompilerOptionsKey,
+				byNotebookUri:        byNotebookUri,
+			}
+		} else {
+			// Handle file changes by updating affected programs
+			// TODO(nayeemrmn): ParsedOptions::FileNames should be updated here
+			// depending on change kinds and in some other cases.
+			for _, fileChange := range params.WorkspaceChange.FileChanges {
+				// Clear document cache entry for changed file
+				s.deno.documentCacheMu.Lock()
+				delete(s.deno.documentCache, fileChange.Uri)
+				s.deno.documentCacheMu.Unlock()
+
+				filePath := tspath.ToPath(fileChange.Uri.FileName(), s.cwd, true)
+				updateProgram := func(pe *DenoProgramEntry) {
+					if pe.program.GetSourceFileByPath(filePath) != nil {
+						wrappedFS := bundled.WrapFS(pe.vfs)
+						baseHost := compiler.NewCompilerHost(
+							s.cwd,
+							wrappedFS,
+							bundled.LibPath(),
+							nil,
+							nil,
+						)
+						// Wrap the host to intercept resolution
+						newHost := &denoCompilerHost{
+							inner:              baseHost,
+							server:             s,
+							ctx:                pe.vfs.ctx,
+							compilerOptionsKey: pe.compilerOptionsKey,
+							notebookUri:        pe.notebookUri,
+						}
+						newProgram, _ := pe.program.UpdateProgram(filePath, newHost)
+						pe.program = newProgram
+					}
+				}
+				for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
+					updateProgram(pe)
+				}
+				for _, pe := range s.deno.programEntries.byNotebookUri {
+					updateProgram(pe)
+				}
+			}
+		}
+	}
+	if params.Request.LanguageServiceMethod != nil {
+		req := params.Request.LanguageServiceMethod
+		_, languageService, orchestrator, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
+		if err != nil {
+			return nil, err
+		}
+		unmarshalArg := func(arg any, target any) {
+			bytes, _ := json.Marshal(arg)
+			json.Unmarshal(bytes, target)
+		}
+		switch req.Name {
+		case "ProvideDiagnostics":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideDiagnostics(ctx, p0)
+		case "ProvideReferences":
+			var p0 lsproto.ReferenceParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideReferences(ctx, &p0, orchestrator)
+		case "ProvideCodeLenses":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCodeLenses(ctx, p0)
+		case "ProvideDocumentSymbols":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideDocumentSymbols(ctx, p0)
+		case "ProvideHover":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideHover(ctx, p0, p1)
+		case "ProvideCodeActions":
+			var p0 lsproto.CodeActionParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCodeActions(ctx, &p0)
+		case "ProvideDocumentHighlights":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideDocumentHighlights(ctx, p0, p1)
+		case "ProvideDefinition":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideDefinition(ctx, p0, p1)
+		case "ProvideTypeDefinition":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvideTypeDefinition(ctx, p0, p1)
+		case "ProvideCompletion":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			var p2 lsproto.CompletionContext
+			unmarshalArg(req.Args[2], &p2)
+			return languageService.ProvideCompletion(ctx, p0, p1, &p2)
+		case "ResolveCompletionItem":
+			var p0 lsproto.CompletionItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ResolveCompletionItem(ctx, &p0, p0.Data)
+		case "ProvideImplementations":
+			var p0 lsproto.ImplementationParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideImplementations(ctx, &p0, orchestrator)
+		case "ProvideFoldingRange":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideFoldingRange(ctx, p0)
+		case "ProvideCallHierarchyIncomingCalls":
+			var p0 lsproto.CallHierarchyItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCallHierarchyIncomingCalls(ctx, &p0, orchestrator)
+		case "ProvideCallHierarchyOutgoingCalls":
+			var p0 lsproto.CallHierarchyItem
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideCallHierarchyOutgoingCalls(ctx, &p0)
+		case "ProvidePrepareCallHierarchy":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			return languageService.ProvidePrepareCallHierarchy(ctx, p0, p1)
+		case "ProvideRename":
+			var p0 lsproto.RenameParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideRename(ctx, &p0, orchestrator)
+		case "ProvideSelectionRanges":
+			var p0 lsproto.SelectionRangeParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideSelectionRanges(ctx, &p0)
+		case "ProvideSignatureHelp":
+			var p0 lsproto.DocumentUri
+			unmarshalArg(req.Args[0], &p0)
+			var p1 lsproto.Position
+			unmarshalArg(req.Args[1], &p1)
+			var p2 lsproto.SignatureHelpContext
+			unmarshalArg(req.Args[2], &p2)
+			return languageService.ProvideSignatureHelp(ctx, p0, p1, &p2)
+		case "ProvideInlayHint":
+			var p0 lsproto.InlayHintParams
+			unmarshalArg(req.Args[0], &p0)
+			return languageService.ProvideInlayHint(ctx, &p0)
+		default:
+			return nil, fmt.Errorf("Unsupported method: %s", req.Name)
+		}
+	} else if params.Request.GetAmbientModules != nil {
+		req := params.Request.GetAmbientModules
+		pe, _, _, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
+		if err != nil {
+			return nil, err
+		}
+		checker, done := pe.program.GetTypeChecker(ctx)
+		defer done()
+		symbols := checker.GetAmbientModules(nil)
+		return core.Map(symbols, func(s *ast.Symbol) string { return s.Name }), nil
+	} else if params.Request.WorkspaceSymbol != nil {
+		req := params.Request.WorkspaceSymbol
+		var programs []*compiler.Program
+		var firstHost *DenoLanguageServiceHost
+		for _, pe := range s.deno.programEntries.byCompilerOptionsKey {
+			programs = append(programs, pe.program)
+			if firstHost == nil {
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
+			}
+		}
+		for _, pe := range s.deno.programEntries.byNotebookUri {
+			programs = append(programs, pe.program)
+			if firstHost == nil {
+				firstHost = NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
+			}
+		}
+		if firstHost == nil {
+			return nil, fmt.Errorf("No program entries available")
+		}
+		return ls.ProvideWorkspaceSymbols(ctx, programs, firstHost.Converters(), firstHost.UserPreferences(), req.Query)
+	}
+	return nil, nil
+}
+
+func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey string, notebookUri *string) (*DenoProgramEntry, *ls.LanguageService, *DenoCrossProjectOrchestrator, error) {
+	var pe *DenoProgramEntry
+	if notebookUri != nil {
+		pe = s.deno.programEntries.byNotebookUri[*notebookUri]
+	}
+	if pe == nil {
+		pe = s.deno.programEntries.byCompilerOptionsKey[compilerOptionsKey]
+	}
+	if pe == nil {
+		if notebookUri != nil {
+			return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s and notebook %s", compilerOptionsKey, *notebookUri)
+		}
+		return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
+	}
+
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
+	orchestrator := &DenoCrossProjectOrchestrator{
+		server:              s,
+		ctx:                 ctx,
+		defaultProgramEntry: pe,
+		defaultHost:         host,
+	}
+	languageService := ls.NewLanguageService(pe.projectPath, pe.program, host)
+	return pe, languageService, orchestrator, nil
+}
+
+func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey string, notebookUri *string, projectConfig *lsproto.DenoProjectConfig) (*DenoProgramEntry, error) {
+	denoVFS := NewDenoVFS(s, ctx, compilerOptionsKey, notebookUri)
+	wrappedFS := bundled.WrapFS(denoVFS)
+	baseHost := compiler.NewCompilerHost(
+		s.cwd,
+		wrappedFS,
+		bundled.LibPath(),
+		nil, // extendedConfigCache
+		nil, // trace
+	)
+	// Wrap the host to intercept resolution
+	compilerHost := &denoCompilerHost{
+		inner:              baseHost,
+		server:             s,
+		ctx:                ctx,
+		compilerOptionsKey: compilerOptionsKey,
+		notebookUri:        notebookUri,
+	}
+	fileNames := make([]string, len(projectConfig.Files))
+	for i, file := range projectConfig.Files {
+		fileNames[i] = file.FileName()
+	}
+	parsedCommandLine := &tsoptions.ParsedCommandLine{
+		ParsedConfig: &core.ParsedOptions{
+			CompilerOptions: projectConfig.CompilerOptions,
+			FileNames:       fileNames,
+		},
+	}
+	program := compiler.NewProgram(compiler.ProgramOptions{
+		Host:             compilerHost,
+		Config:           parsedCommandLine,
+		JSDocParsingMode: ast.JSDocParsingModeParseAll,
+	})
+	projectPath := tspath.ToPath(s.cwd, "", denoVFS.UseCaseSensitiveFileNames())
+
+	toPath := func(fileName string) tspath.Path {
+		return tspath.ToPath(fileName, s.cwd, denoVFS.UseCaseSensitiveFileNames())
+	}
+	autoImportRegistry := autoimport.NewRegistry(toPath)
+
+	// Initialize the registry with a project bucket by calling Clone with the open files
+	autoImportHost := &denoAutoImportHost{
+		vfs:         wrappedFS,
+		cwd:         s.cwd,
+		projectPath: projectPath,
+		program:     program,
+	}
+	openFiles := make(map[tspath.Path]string)
+	var firstFilePath tspath.Path
+	for _, file := range projectConfig.Files {
+		fileName := file.FileName()
+		filePath := toPath(fileName)
+		openFiles[filePath] = fileName
+		if firstFilePath == "" {
+			firstFilePath = filePath
+		}
+	}
+	autoImportRegistry, _ = autoImportRegistry.Clone(ctx, autoimport.RegistryChange{
+		OpenFiles:     openFiles,
+		RequestedFile: firstFilePath, // Triggers updateIndexes to build the project bucket
+	}, autoImportHost, nil)
+
+	return &DenoProgramEntry{
+		program:            program,
+		projectPath:        projectPath,
+		compilerOptionsKey: compilerOptionsKey,
+		notebookUri:        notebookUri,
+		compilerOptions:    projectConfig.CompilerOptions,
+		userPreferences:    projectConfig.UserPreferences,
+		formatOptions:      projectConfig.FormatOptions,
+		vfs:                denoVFS,
+		autoImportRegistry: autoImportRegistry,
+	}, nil
 }
 
 func (s *Server) handleInitialize(ctx context.Context, params *lsproto.InitializeParams, _ *lsproto.RequestMessage) (lsproto.InitializeResponse, error) {

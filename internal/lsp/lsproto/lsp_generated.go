@@ -8,6 +8,9 @@ import (
 
 	"github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
+	"github.com/microsoft/typescript-go/internal/core"
+	"github.com/microsoft/typescript-go/internal/format"
+	"github.com/microsoft/typescript-go/internal/ls/lsutil"
 )
 
 // Meta model version 3.17.0
@@ -23266,6 +23269,8 @@ func unmarshalParams(method Method, data []byte) (any, error) {
 		return unmarshalPtrTo[CancelParams](data)
 	case MethodProgress:
 		return unmarshalPtrTo[ProgressParams](data)
+	case MethodDenoRequest:
+		return unmarshalPtrTo[DenoRequestParams](data)
 	default:
 		return unmarshalAny(data)
 	}
@@ -23805,6 +23810,8 @@ const (
 	MethodLogTrace                       Method = "$/logTrace"
 	MethodCancelRequest                  Method = "$/cancelRequest"
 	MethodProgress                       Method = "$/progress"
+	MethodDenoRequest                    Method = "deno/request"
+	MethodDenoCallback                   Method = "deno/callback"
 )
 
 // Request response types
@@ -24300,6 +24307,104 @@ var CancelRequestInfo = NotificationInfo[*CancelParams]{Method: MethodCancelRequ
 
 // Type mapping info for `$/progress`
 var ProgressInfo = NotificationInfo[*ProgressParams]{Method: MethodProgress}
+
+// Deno types
+
+type DenoFileChangeKind string
+
+const (
+	DenoFileChangeKindOpened   DenoFileChangeKind = "opened"
+	DenoFileChangeKindClosed   DenoFileChangeKind = "closed"
+	DenoFileChangeKindModified DenoFileChangeKind = "modified"
+)
+
+type DenoFileChange struct {
+	Uri  DocumentUri        `json:"uri"`
+	Kind DenoFileChangeKind `json:"kind"`
+}
+
+type DenoFileNames struct {
+	ByCompilerOptionsKey map[string][]string `json:"byCompilerOptionsKey"`
+	ByNotebookUri        map[string][]string `json:"byNotebookUri"`
+}
+
+type DenoProjectConfig struct {
+	CompilerOptions    *core.CompilerOptions      `json:"compilerOptions"`
+	Files              []DocumentUri              `json:"files"`
+	UserPreferences    *lsutil.UserPreferences    `json:"userPreferences"`
+	FormatOptions      *format.FormatCodeSettings `json:"formatOptions"`
+	CompilerOptionsKey string                     `json:"compilerOptionsKey"`
+	NotebookUri        *string                    `json:"notebookUri"`
+}
+
+type DenoWorkspaceConfig struct {
+	ByCompilerOptionsKey map[string]*DenoProjectConfig `json:"byCompilerOptionsKey"`
+	ByNotebookUri        map[string]*DenoProjectConfig `json:"byNotebookUri"`
+}
+
+type DenoWorkspaceChange struct {
+	FileChanges      []DenoFileChange     `json:"fileChanges"`
+	NewConfiguration *DenoWorkspaceConfig `json:"newConfiguration,omitempty"`
+}
+
+type DenoLanguageServiceMethodParams struct {
+	Name               string  `json:"name"`
+	Args               []any   `json:"args"`
+	CompilerOptionsKey string  `json:"compilerOptionsKey"`
+	NotebookUri        *string `json:"notebookUri,omitempty"`
+}
+
+type DenoGetAmbientModulesParams struct {
+	CompilerOptionsKey string  `json:"compilerOptionsKey"`
+	NotebookUri        *string `json:"notebookUri,omitempty"`
+}
+
+type DenoWorkspaceSymbolParams struct {
+	Query string `json:"query"`
+}
+
+type DenoRequest struct {
+	LanguageServiceMethod *DenoLanguageServiceMethodParams `json:"languageServiceMethod,omitempty"`
+	GetAmbientModules     *DenoGetAmbientModulesParams     `json:"getAmbientModules,omitempty"`
+	WorkspaceSymbol       *DenoWorkspaceSymbolParams       `json:"workspaceSymbol,omitempty"`
+}
+
+type DenoRequestParams struct {
+	Request         DenoRequest          `json:"request"`
+	WorkspaceChange *DenoWorkspaceChange `json:"workspaceChange,omitempty"`
+}
+
+var DenoRequestInfo = RequestInfo[*DenoRequestParams, any]{Method: MethodDenoRequest}
+
+// Deno callback types
+
+type DenoGetDocumentParams struct {
+	Uri DocumentUri `json:"uri"`
+}
+
+type DenoDocumentData struct {
+	Text       *string        `json:"text"`
+	LineStarts []core.TextPos `json:"lineStarts,omitempty"`
+	AsciiOnly  bool           `json:"asciiOnly,omitempty"`
+}
+
+type DenoResolveModuleNameParams struct {
+	ModuleName          string      `json:"moduleName"`
+	ReferrerUri         DocumentUri `json:"referrerUri"`
+	ImportAttributeType *string     `json:"importAttributeType,omitempty"`
+	ResolutionMode      int32       `json:"resolutionMode"`
+	CompilerOptionsKey  string      `json:"compilerOptionsKey"`
+}
+
+type DenoResolution struct {
+	Uri       DocumentUri `json:"uri"`
+	Extension string      `json:"extension"`
+}
+
+type DenoCallbackParams struct {
+	GetDocument       *DenoGetDocumentParams       `json:"getDocument,omitempty"`
+	ResolveModuleName *DenoResolveModuleNameParams `json:"resolveModuleName,omitempty"`
+}
 
 // Union types
 

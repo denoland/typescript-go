@@ -112,6 +112,9 @@ var extraEscapeReplacer = strings.NewReplacer(
 )
 
 func FileNameToDocumentURI(fileName string) lsproto.DocumentUri {
+	if suffix, found := strings.CutPrefix(fileName, "asset:///"); found {
+		return lsproto.DocumentUri("deno:/asset/" + suffix)
+	}
 	if bundled.IsBundled(fileName) {
 		return lsproto.DocumentUri(fileName)
 	}
@@ -125,6 +128,9 @@ func FileNameToDocumentURI(fileName string) lsproto.DocumentUri {
 			panic("invalid file name: " + fileName)
 		}
 		if authority == "ts-nul-authority" {
+			if scheme == "deno" && !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
 			return lsproto.DocumentUri(scheme + ":" + path)
 		}
 		return lsproto.DocumentUri(scheme + "://" + authority + "/" + path)

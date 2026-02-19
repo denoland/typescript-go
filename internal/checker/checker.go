@@ -15174,7 +15174,7 @@ func (c *Checker) tryFindAmbientModule(moduleName string, withAugmentations bool
 }
 
 func (c *Checker) GetAmbientModules(sourceFile *ast.SourceFile) []*ast.Symbol {
-	isNode := c.denoForkContext.HasNodeSourceFile(&sourceFile.Node)
+	isNode := sourceFile != nil && c.denoForkContext.HasNodeSourceFile(&sourceFile.Node)
 	if isNode {
 		c.nodeAmbientModulesOnce.Do(func() {
 			for sym, global := range c.denoForkContext.CombinedGlobals().Iter() {
