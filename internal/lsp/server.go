@@ -438,13 +438,7 @@ func (r *denoResolver) ResolveModuleName(moduleName string, containingFile strin
 	}
 	var response *lsproto.DenoResolution
 	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
-	if err != nil {
-		return &module.ResolvedModule{
-			ResolvedFileName: "",
-			Extension:        "",
-		}, nil
-	}
-	if response == nil {
+	if err != nil || response == nil {
 		return &module.ResolvedModule{
 			ResolvedFileName: "",
 			Extension:        "",
@@ -459,15 +453,53 @@ func (r *denoResolver) ResolveModuleName(moduleName string, containingFile strin
 func (r *denoResolver) ResolveTypeReferenceDirective(name string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) (*module.ResolvedTypeReferenceDirective, []module.DiagAndArgs) {
-	// TODO(nayeemrmn): Implement callback.
-	return r.inner.ResolveTypeReferenceDirective(name, containingFile, resolutionMode, redirectedReference)
+	params := lsproto.DenoCallbackParams{
+		ResolveModuleName: &lsproto.DenoResolveModuleNameParams{
+			ModuleName:          name,
+			ReferrerUri:         lsconv.FileNameToDocumentURI(containingFile),
+			ImportAttributeType: nil,
+			ResolutionMode:      int32(resolutionMode),
+			CompilerOptionsKey:  r.compilerOptionsKey,
+		},
+	}
+	var response *lsproto.DenoResolution
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil || response == nil {
+		return &module.ResolvedTypeReferenceDirective{
+			ResolvedFileName: "",
+			Primary:          true,
+		}, nil
+	}
+	return &module.ResolvedTypeReferenceDirective{
+		ResolvedFileName: response.Uri.FileName(),
+		Primary:          true,
+	}, nil
 }
 
 func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile string,
 	resolutionMode core.ResolutionMode,
 	redirectedReference module.ResolvedProjectReference) *module.ResolvedModule {
-	// TODO(nayeemrmn): Implement callback.
-	return r.inner.ResolvePackageDirectory(moduleName, containingFile, resolutionMode, redirectedReference)
+	params := lsproto.DenoCallbackParams{
+		ResolveModuleName: &lsproto.DenoResolveModuleNameParams{
+			ModuleName:          moduleName,
+			ReferrerUri:         lsconv.FileNameToDocumentURI(containingFile),
+			ImportAttributeType: nil,
+			ResolutionMode:      int32(resolutionMode),
+			CompilerOptionsKey:  r.compilerOptionsKey,
+		},
+	}
+	var response *lsproto.DenoResolution
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil || response == nil {
+		return &module.ResolvedModule{
+			ResolvedFileName: "",
+			Extension:        "",
+		}
+	}
+	return &module.ResolvedModule{
+		ResolvedFileName: response.Uri.FileName(),
+		Extension:        response.Extension,
+	}
 }
 
 func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
