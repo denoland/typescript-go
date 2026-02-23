@@ -8,6 +8,7 @@ import (
 	"iter"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -503,13 +504,51 @@ func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile
 }
 
 func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
-	// TODO(nayeemrmn): Implement callback.
-	return r.inner.ResolveJsxImportSource(referrer)
+	params := lsproto.DenoCallbackParams{
+		ResolveJsxImportSource: &lsproto.DenoResolveJsxImportSourceParams{
+			ReferrerUri: lsconv.FileNameToDocumentURI(referrer),
+		},
+	}
+	var response *lsproto.DocumentUri
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil || response == nil {
+		return ""
+	}
+	return response.FileName()
 }
 
 func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
-	// TODO(nayeemrmn): Implement callback.
-	return r.inner.GetPackageScopeForPath(directory)
+	if strings.HasPrefix(directory, "^/") {
+		return nil
+	}
+	params := lsproto.DenoCallbackParams{
+		GetPackageScopeForPath: &lsproto.DenoGetPackageScopeForPathParams{
+			DirectoryPath: directory,
+		},
+	}
+	var response *lsproto.DenoPackageJsonScope
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil || response == nil {
+		return nil
+	}
+	fields, err := packagejson.Parse([]byte(response.PackageJsonText))
+	if err != nil {
+		return &packagejson.InfoCacheEntry{
+			PackageDirectory: response.PackageDirectoryPath,
+			DirectoryExists:  true,
+			Contents: &packagejson.PackageJson{
+				Parseable: false,
+			},
+		}
+	}
+	return &packagejson.InfoCacheEntry{
+		PackageDirectory: response.PackageDirectoryPath,
+		DirectoryExists:  true,
+		Contents: &packagejson.PackageJson{
+			Fields:    fields,
+			Parseable: true,
+		},
+	}
 }
 
 func (r *denoResolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {

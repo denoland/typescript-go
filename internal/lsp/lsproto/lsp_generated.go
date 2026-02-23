@@ -24401,9 +24401,24 @@ type DenoResolution struct {
 	Extension string      `json:"extension"`
 }
 
+type DenoResolveJsxImportSourceParams struct {
+	ReferrerUri DocumentUri `json:"referrerUri"`
+}
+
+type DenoGetPackageScopeForPathParams struct {
+	DirectoryPath string `json:"directoryPath"`
+}
+
+type DenoPackageJsonScope struct {
+	PackageDirectoryPath string `json:"packageDirectoryPath"`
+	PackageJsonText      string `json:"packageJsonText"`
+}
+
 type DenoCallbackParams struct {
-	GetDocument       *DenoGetDocumentParams       `json:"getDocument,omitempty"`
-	ResolveModuleName *DenoResolveModuleNameParams `json:"resolveModuleName,omitempty"`
+	GetDocument            *DenoGetDocumentParams            `json:"getDocument,omitempty"`
+	ResolveModuleName      *DenoResolveModuleNameParams      `json:"resolveModuleName,omitempty"`
+	ResolveJsxImportSource *DenoResolveJsxImportSourceParams `json:"resolveJsxImportSource,omitempty"`
+	GetPackageScopeForPath *DenoGetPackageScopeForPathParams `json:"getPackageScopeForPath,omitempty"`
 }
 
 // Union types
