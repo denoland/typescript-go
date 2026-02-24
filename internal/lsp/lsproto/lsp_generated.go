@@ -24402,7 +24402,8 @@ type DenoResolution struct {
 }
 
 type DenoResolveJsxImportSourceParams struct {
-	ReferrerUri DocumentUri `json:"referrerUri"`
+	ReferrerUri        DocumentUri `json:"referrerUri"`
+	CompilerOptionsKey string      `json:"compilerOptionsKey"`
 }
 
 type DenoGetPackageScopeForPathParams struct {
@@ -24414,11 +24415,17 @@ type DenoPackageJsonScope struct {
 	PackageJsonText      string `json:"packageJsonText"`
 }
 
+type DenoGetImpliedNodeFormatForFileParams struct {
+	Uri                DocumentUri `json:"uri"`
+	CompilerOptionsKey string      `json:"compilerOptionsKey"`
+}
+
 type DenoCallbackParams struct {
-	GetDocument            *DenoGetDocumentParams            `json:"getDocument,omitempty"`
-	ResolveModuleName      *DenoResolveModuleNameParams      `json:"resolveModuleName,omitempty"`
-	ResolveJsxImportSource *DenoResolveJsxImportSourceParams `json:"resolveJsxImportSource,omitempty"`
-	GetPackageScopeForPath *DenoGetPackageScopeForPathParams `json:"getPackageScopeForPath,omitempty"`
+	GetDocument                 *DenoGetDocumentParams                 `json:"getDocument,omitempty"`
+	ResolveModuleName           *DenoResolveModuleNameParams           `json:"resolveModuleName,omitempty"`
+	ResolveJsxImportSource      *DenoResolveJsxImportSourceParams      `json:"resolveJsxImportSource,omitempty"`
+	GetPackageScopeForPath      *DenoGetPackageScopeForPathParams      `json:"getPackageScopeForPath,omitempty"`
+	GetImpliedNodeFormatForFile *DenoGetImpliedNodeFormatForFileParams `json:"getImpliedNodeFormatForFile,omitempty"`
 }
 
 // Union types

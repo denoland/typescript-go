@@ -506,15 +506,16 @@ func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile
 func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
 	params := lsproto.DenoCallbackParams{
 		ResolveJsxImportSource: &lsproto.DenoResolveJsxImportSourceParams{
-			ReferrerUri: lsconv.FileNameToDocumentURI(referrer),
+			ReferrerUri:        lsconv.FileNameToDocumentURI(referrer),
+			CompilerOptionsKey: r.compilerOptionsKey,
 		},
 	}
-	var response *lsproto.DocumentUri
+	var response *string
 	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
 	if err != nil || response == nil {
 		return ""
 	}
-	return response.FileName()
+	return *response
 }
 
 func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.InfoCacheEntry {
@@ -552,8 +553,18 @@ func (r *denoResolver) GetPackageScopeForPath(directory string) *packagejson.Inf
 }
 
 func (r *denoResolver) GetImpliedNodeFormatForFile(path string, packageJsonType string) core.ModuleKind {
-	// TODO(nayeemrmn): Implement callback.
-	return r.inner.GetImpliedNodeFormatForFile(path, packageJsonType)
+	params := lsproto.DenoCallbackParams{
+		GetImpliedNodeFormatForFile: &lsproto.DenoGetImpliedNodeFormatForFileParams{
+			Uri:                lsconv.FileNameToDocumentURI(path),
+			CompilerOptionsKey: r.compilerOptionsKey,
+		},
+	}
+	var response core.ModuleKind
+	err := r.server.sendRequestSync(r.ctx, lsproto.MethodDenoCallback, params, &response)
+	if err != nil {
+		return core.ModuleKindESNext
+	}
+	return response
 }
 
 type Server struct {
