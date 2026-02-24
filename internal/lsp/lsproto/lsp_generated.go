@@ -24402,8 +24402,7 @@ type DenoResolution struct {
 }
 
 type DenoResolveJsxImportSourceParams struct {
-	ReferrerUri        DocumentUri `json:"referrerUri"`
-	CompilerOptionsKey string      `json:"compilerOptionsKey"`
+	CompilerOptionsKey string `json:"compilerOptionsKey"`
 }
 
 type DenoGetPackageScopeForPathParams struct {

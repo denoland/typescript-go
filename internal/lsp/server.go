@@ -503,10 +503,9 @@ func (r *denoResolver) ResolvePackageDirectory(moduleName string, containingFile
 	}
 }
 
-func (r *denoResolver) ResolveJsxImportSource(referrer string) string {
+func (r *denoResolver) ResolveJsxImportSource(_referrer string) string {
 	params := lsproto.DenoCallbackParams{
 		ResolveJsxImportSource: &lsproto.DenoResolveJsxImportSourceParams{
-			ReferrerUri:        lsconv.FileNameToDocumentURI(referrer),
 			CompilerOptionsKey: r.compilerOptionsKey,
 		},
 	}
