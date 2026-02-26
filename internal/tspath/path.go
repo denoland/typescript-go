@@ -281,6 +281,11 @@ func reducePathComponents(components []string) []string {
 	if len(components) == 0 {
 		return []string{}
 	}
+	// Deno: Paths like this can represent URIs with exotic schemes. They shouldn't be
+	// normalized. TODO(nayeemrmn): Upstream this?
+	if components[0] == "^/" {
+		return components
+	}
 	reduced := []string{components[0]}
 	for i := 1; i < len(components); i++ {
 		component := components[i]
@@ -342,6 +347,11 @@ func GetNormalizedAbsolutePathWithoutRoot(fileName string, currentDirectory stri
 }
 
 func GetNormalizedAbsolutePath(fileName string, currentDirectory string) string {
+	// Deno: Paths like this can represent URIs with exotic schemes. They shouldn't be
+	// normalized. TODO(nayeemrmn): Upstream this?
+	if strings.HasPrefix(fileName, "^/") {
+		return fileName
+	}
 	rootLength := GetRootLength(fileName)
 	if rootLength == 0 && currentDirectory != "" {
 		fileName = CombinePaths(currentDirectory, fileName)
@@ -549,6 +559,11 @@ func hasRelativePathSegment(p string) bool {
 
 func NormalizePath(path string) string {
 	path = NormalizeSlashes(path)
+	// Deno: Paths like this can represent URIs with exotic schemes. They shouldn't be
+	// normalized. TODO(nayeemrmn): Upstream this?
+	if strings.HasPrefix(path, "^/") {
+		return path
+	}
 	if normalized, ok := simpleNormalizePath(path); ok {
 		return normalized
 	}
