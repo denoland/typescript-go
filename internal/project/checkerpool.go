@@ -219,3 +219,7 @@ func (p *CheckerPool) size() int {
 }
 
 func noop() {}
+
+func DenoNewCheckerPool(maxCheckers int, program *compiler.Program, log func(msg string)) *CheckerPool {
+	return newCheckerPool(maxCheckers, program, log)
+}

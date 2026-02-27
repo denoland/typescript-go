@@ -1599,6 +1599,9 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 		Host:             compilerHost,
 		Config:           parsedCommandLine,
 		JSDocParsingMode: ast.JSDocParsingModeParseAll,
+		CreateCheckerPool: func(p *compiler.Program) compiler.CheckerPool {
+			return project.DenoNewCheckerPool(4, p, func(msg string) {})
+		},
 	})
 	projectPath := tspath.ToPath(s.cwd, "", denoVFS.UseCaseSensitiveFileNames())
 
