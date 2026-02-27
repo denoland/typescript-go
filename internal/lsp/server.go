@@ -1254,6 +1254,7 @@ type DenoCrossProjectOrchestrator struct {
 	ctx                 context.Context
 	defaultProgramEntry *DenoProgramEntry
 	defaultHost         *DenoLanguageServiceHost
+	initialUri          lsproto.DocumentUri
 }
 
 func (o *DenoCrossProjectOrchestrator) GetDefaultProject() ls.Project {
@@ -1261,13 +1262,18 @@ func (o *DenoCrossProjectOrchestrator) GetDefaultProject() ls.Project {
 }
 
 func (o *DenoCrossProjectOrchestrator) GetAllProjectsForInitialRequest() []ls.Project {
+	fileName := o.initialUri.FileName()
 	entries := o.server.deno.programEntries
-	projects := make([]ls.Project, 0, len(entries.byCompilerOptionsKey)+len(entries.byNotebookUri))
+	var projects []ls.Project
 	for _, pe := range entries.byCompilerOptionsKey {
-		projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+		if (DenoLanguageServiceProject{programEntry: pe}).HasFile(fileName) {
+			projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+		}
 	}
 	for _, pe := range entries.byNotebookUri {
-		projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+		if (DenoLanguageServiceProject{programEntry: pe}).HasFile(fileName) {
+			projects = append(projects, DenoLanguageServiceProject{programEntry: pe})
+		}
 	}
 	return projects
 }
@@ -1397,7 +1403,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 	}
 	if params.Request.LanguageServiceMethod != nil {
 		req := params.Request.LanguageServiceMethod
-		_, languageService, orchestrator, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
+		pe, languageService, err := s.getDenoLanguageService(req.CompilerOptionsKey, req.NotebookUri)
 		if err != nil {
 			return nil, err
 		}
@@ -1413,6 +1419,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		case "ProvideReferences":
 			var p0 lsproto.ReferenceParams
 			unmarshalArg(req.Args[0], &p0)
+			orchestrator := s.getDenoCrossProjectOrchestrator(ctx, pe, p0.TextDocument.Uri)
 			return languageService.ProvideReferences(ctx, &p0, orchestrator)
 		case "ProvideCodeLenses":
 			var p0 lsproto.DocumentUri
@@ -1465,6 +1472,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		case "ProvideImplementations":
 			var p0 lsproto.ImplementationParams
 			unmarshalArg(req.Args[0], &p0)
+			orchestrator := s.getDenoCrossProjectOrchestrator(ctx, pe, p0.TextDocument.Uri)
 			return languageService.ProvideImplementations(ctx, &p0, orchestrator)
 		case "ProvideFoldingRange":
 			var p0 lsproto.DocumentUri
@@ -1473,6 +1481,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		case "ProvideCallHierarchyIncomingCalls":
 			var p0 lsproto.CallHierarchyItem
 			unmarshalArg(req.Args[0], &p0)
+			orchestrator := s.getDenoCrossProjectOrchestrator(ctx, pe, p0.Uri)
 			return languageService.ProvideCallHierarchyIncomingCalls(ctx, &p0, orchestrator)
 		case "ProvideCallHierarchyOutgoingCalls":
 			var p0 lsproto.CallHierarchyItem
@@ -1487,6 +1496,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		case "ProvideRename":
 			var p0 lsproto.RenameParams
 			unmarshalArg(req.Args[0], &p0)
+			orchestrator := s.getDenoCrossProjectOrchestrator(ctx, pe, p0.TextDocument.Uri)
 			return languageService.ProvideRename(ctx, &p0, orchestrator)
 		case "ProvideSelectionRanges":
 			var p0 lsproto.SelectionRangeParams
@@ -1509,7 +1519,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		}
 	} else if params.Request.GetAmbientModules != nil {
 		req := params.Request.GetAmbientModules
-		pe, _, _, err := s.getDenoLanguageService(ctx, req.CompilerOptionsKey, req.NotebookUri)
+		pe, _, err := s.getDenoLanguageService(req.CompilerOptionsKey, req.NotebookUri)
 		if err != nil {
 			return nil, err
 		}
@@ -1541,7 +1551,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 	return nil, nil
 }
 
-func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey string, notebookUri *string) (*DenoProgramEntry, *ls.LanguageService, *DenoCrossProjectOrchestrator, error) {
+func (s *Server) getDenoLanguageService(compilerOptionsKey string, notebookUri *string) (*DenoProgramEntry, *ls.LanguageService, error) {
 	var pe *DenoProgramEntry
 	if notebookUri != nil {
 		pe = s.deno.programEntries.byNotebookUri[*notebookUri]
@@ -1551,20 +1561,25 @@ func (s *Server) getDenoLanguageService(ctx context.Context, compilerOptionsKey 
 	}
 	if pe == nil {
 		if notebookUri != nil {
-			return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s and notebook %s", compilerOptionsKey, *notebookUri)
+			return nil, nil, fmt.Errorf("Couldn't find program entry for key: %s and notebook %s", compilerOptionsKey, *notebookUri)
 		}
-		return nil, nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
+		return nil, nil, fmt.Errorf("Couldn't find program entry for key: %s", compilerOptionsKey)
 	}
 
 	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
-	orchestrator := &DenoCrossProjectOrchestrator{
+	languageService := ls.NewLanguageService(pe.projectPath, pe.program, host)
+	return pe, languageService, nil
+}
+
+func (s *Server) getDenoCrossProjectOrchestrator(ctx context.Context, pe *DenoProgramEntry, initialUri lsproto.DocumentUri) *DenoCrossProjectOrchestrator {
+	host := NewDenoLanguageServiceHost(pe.vfs, pe.userPreferences, pe.formatOptions, pe.autoImportRegistry)
+	return &DenoCrossProjectOrchestrator{
 		server:              s,
 		ctx:                 ctx,
 		defaultProgramEntry: pe,
 		defaultHost:         host,
+		initialUri:          initialUri,
 	}
-	languageService := ls.NewLanguageService(pe.projectPath, pe.program, host)
-	return pe, languageService, orchestrator, nil
 }
 
 func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey string, notebookUri *string, projectConfig *lsproto.DenoProjectConfig) (*DenoProgramEntry, error) {
@@ -1603,7 +1618,14 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 			return project.DenoNewCheckerPool(4, p, func(msg string) {})
 		},
 	})
-	projectPath := tspath.ToPath(s.cwd, "", denoVFS.UseCaseSensitiveFileNames())
+
+	// This is not used as an actual path, just a unique id.
+	var projectPath tspath.Path
+	if notebookUri != nil {
+		projectPath = tspath.Path(*notebookUri)
+	} else {
+		projectPath = tspath.Path(compilerOptionsKey)
+	}
 
 	toPath := func(fileName string) tspath.Path {
 		return tspath.ToPath(fileName, s.cwd, denoVFS.UseCaseSensitiveFileNames())
