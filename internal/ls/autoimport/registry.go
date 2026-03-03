@@ -413,6 +413,9 @@ func (b *registryBuilder) updateBucketAndDirectoryExistence(change RegistryChang
 	for path, fileName := range change.OpenFiles {
 		neededProjects[core.FirstResult(b.host.GetDefaultProject(path))] = struct{}{}
 		if strings.HasPrefix(fileName, "^/") {
+			if !b.specifierCache.Has(path) {
+				b.specifierCache.Set(path, &collections.SyncMap[tspath.Path, string]{})
+			}
 			continue
 		}
 		dir := fileName
