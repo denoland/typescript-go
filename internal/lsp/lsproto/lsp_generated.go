@@ -24383,9 +24383,11 @@ type DenoGetDocumentParams struct {
 }
 
 type DenoDocumentData struct {
-	Text       *string        `json:"text"`
-	LineStarts []core.TextPos `json:"lineStarts,omitempty"`
-	AsciiOnly  bool           `json:"asciiOnly,omitempty"`
+	Text           string          `json:"text"`
+	ScriptKind     core.ScriptKind `json:"scriptKind,omitempty"`
+	IsNotebookCell bool            `json:"isNotebookCell,omitempty"`
+	LineStarts     []core.TextPos  `json:"lineStarts,omitempty"`
+	AsciiOnly      bool            `json:"asciiOnly,omitempty"`
 }
 
 type DenoResolveModuleNameParams struct {
