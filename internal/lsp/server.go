@@ -31,6 +31,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
 	"github.com/microsoft/typescript-go/internal/module"
 	"github.com/microsoft/typescript-go/internal/packagejson"
+	"github.com/microsoft/typescript-go/internal/parser"
 	"github.com/microsoft/typescript-go/internal/project"
 	"github.com/microsoft/typescript-go/internal/project/ata"
 	"github.com/microsoft/typescript-go/internal/sourcemap"
@@ -215,7 +216,7 @@ func (h *DenoLanguageServiceHost) FormatOptions() *format.FormatCodeSettings {
 
 func (h *DenoLanguageServiceHost) GetECMALineInfo(fileName string) *sourcemap.ECMALineInfo {
 	if data := h.vfs.GetDocument(fileName); data != nil {
-		return sourcemap.CreateECMALineInfo(*data.Text, data.LineStarts)
+		return sourcemap.CreateECMALineInfo(data.Text, data.LineStarts)
 	}
 	return nil
 }
@@ -268,7 +269,7 @@ func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
 	}
 	var response lsproto.DenoDocumentData
 	err := v.server.sendRequestSync(v.ctx, lsproto.MethodDenoCallback, params, &response)
-	if err != nil || response.Text == nil {
+	if err != nil {
 		return nil
 	}
 	if v.server.deno.documentCache != nil {
@@ -279,7 +280,7 @@ func (v *DenoVFS) GetDocument(path string) *lsproto.DenoDocumentData {
 
 func (v *DenoVFS) ReadFile(path string) (contents string, ok bool) {
 	if data := v.GetDocument(path); data != nil {
-		return *data.Text, true
+		return data.Text, true
 	}
 	return "", false
 }
@@ -362,7 +363,7 @@ func (h *denoAutoImportHost) Dispose() {
 type denoCompilerHost struct {
 	inner              compiler.CompilerHost
 	server             *Server
-	ctx                context.Context
+	vfs                *DenoVFS
 	compilerOptionsKey string
 	notebookUri        *string
 }
@@ -386,7 +387,19 @@ func (h *denoCompilerHost) Trace(msg *diagnostics.Message, args ...any) {
 }
 
 func (h *denoCompilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
-	return h.inner.GetSourceFile(opts)
+	data := h.vfs.GetDocument(opts.FileName)
+	if data == nil {
+		return nil
+	}
+	scriptKind := data.ScriptKind
+	if scriptKind == core.ScriptKindUnknown {
+		scriptKind = core.GetScriptKindFromFileName(opts.FileName)
+	}
+	sourceFile := parser.ParseSourceFile(opts, data.Text, scriptKind)
+	if data.IsNotebookCell {
+		sourceFile.ExternalModuleIndicator = nil
+	}
+	return sourceFile
 }
 
 func (h *denoCompilerHost) GetResolvedProjectReference(fileName string, path tspath.Path) *tsoptions.ParsedCommandLine {
@@ -408,7 +421,7 @@ func (h *denoCompilerHost) MakeResolver(host module.ResolutionHost, options *cor
 	return &denoResolver{
 		inner:              baseResolver,
 		server:             h.server,
-		ctx:                h.ctx,
+		ctx:                h.vfs.ctx,
 		compilerOptionsKey: h.compilerOptionsKey,
 		notebookUri:        h.notebookUri,
 	}
@@ -1384,7 +1397,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 						newHost := &denoCompilerHost{
 							inner:              baseHost,
 							server:             s,
-							ctx:                pe.vfs.ctx,
+							vfs:                pe.vfs,
 							compilerOptionsKey: pe.compilerOptionsKey,
 							notebookUri:        pe.notebookUri,
 						}
@@ -1596,7 +1609,7 @@ func (s *Server) createDenoProgramEntry(ctx context.Context, compilerOptionsKey 
 	compilerHost := &denoCompilerHost{
 		inner:              baseHost,
 		server:             s,
-		ctx:                ctx,
+		vfs:                denoVFS,
 		compilerOptionsKey: compilerOptionsKey,
 		notebookUri:        notebookUri,
 	}

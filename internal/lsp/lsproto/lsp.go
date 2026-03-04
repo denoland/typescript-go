@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 
 	"github.com/go-json-experiment/json"
@@ -53,6 +54,9 @@ func (uri DocumentUri) Path(useCaseSensitiveFileNames bool) tspath.Path {
 }
 
 func fixWindowsURIPath(path string) string {
+	if runtime.GOOS != "windows" {
+		return path
+	}
 	if rest, ok := strings.CutPrefix(path, "/"); ok {
 		if volume, rest, ok := tspath.SplitVolumePath(rest); ok {
 			return volume + rest
