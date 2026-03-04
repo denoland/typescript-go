@@ -1379,7 +1379,8 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 			for _, fileChange := range params.WorkspaceChange.FileChanges {
 				// Clear document cache entry for changed file
 				s.deno.documentCacheMu.Lock()
-				delete(s.deno.documentCache, fileChange.Uri)
+				normalizedUri := lsconv.FileNameToDocumentURI(tspath.NormalizePath(fileChange.Uri.FileName()))
+				delete(s.deno.documentCache, normalizedUri)
 				s.deno.documentCacheMu.Unlock()
 
 				filePath := tspath.ToPath(fileChange.Uri.FileName(), s.cwd, true)
