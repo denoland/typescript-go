@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -2207,6 +2208,7 @@ var wordSeparators = collections.NewSetFromItems(
 // e.g. for "abc def.ghi|jkl", the word length is 3 and the word start is 'g'.
 func getWordLengthAndStart(sourceFile *ast.SourceFile, position int) (wordLength int, wordStart rune) {
 	// !!! Port other case of vscode's `DEFAULT_WORD_REGEXP` that covers words that start like numbers, e.g. -123.456abcd.
+	fmt.Fprintln(os.Stderr, "position", position, "sourceFile.FileName()", sourceFile.FileName(), "sourceFile.Text()", sourceFile.Text(), "END")
 	text := sourceFile.Text()[:position]
 	totalSize := 0
 	var firstRune rune
