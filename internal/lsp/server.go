@@ -1345,23 +1345,23 @@ func (o *DenoCrossProjectOrchestrator) GetProjectsLoadingProjectTree(ctx context
 }
 
 func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequestParams, _ *lsproto.RequestMessage) (any, error) {
-	if params.WorkspaceChange != nil {
-		if params.WorkspaceChange.NewConfiguration != nil {
+	if params.ApplyWorkspaceChange != nil {
+		if params.ApplyWorkspaceChange.NewConfiguration != nil {
 			// Clear document cache on new configuration
 			s.deno.documentCacheMu.Lock()
 			s.deno.documentCache = make(map[lsproto.DocumentUri]*lsproto.DenoDocumentData)
 			s.deno.documentCacheMu.Unlock()
 
-			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
-			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.WorkspaceChange.NewConfiguration.ByNotebookUri))
-			for key, projectConfig := range params.WorkspaceChange.NewConfiguration.ByCompilerOptionsKey {
+			byCompilerOptionsKey := make(map[string]*DenoProgramEntry, len(params.ApplyWorkspaceChange.NewConfiguration.ByCompilerOptionsKey))
+			byNotebookUri := make(map[string]*DenoProgramEntry, len(params.ApplyWorkspaceChange.NewConfiguration.ByNotebookUri))
+			for key, projectConfig := range params.ApplyWorkspaceChange.NewConfiguration.ByCompilerOptionsKey {
 				entry, err := s.createDenoProgramEntry(ctx, key, nil, projectConfig)
 				if err != nil {
 					return nil, fmt.Errorf("Failed to create program entry for key %s: %w", key, err)
 				}
 				byCompilerOptionsKey[key] = entry
 			}
-			for notebookUri, projectConfig := range params.WorkspaceChange.NewConfiguration.ByNotebookUri {
+			for notebookUri, projectConfig := range params.ApplyWorkspaceChange.NewConfiguration.ByNotebookUri {
 				entry, err := s.createDenoProgramEntry(ctx, projectConfig.CompilerOptionsKey, &notebookUri, projectConfig)
 				if err != nil {
 					return nil, fmt.Errorf("Failed to create program entry for notebook %s: %w", notebookUri, err)
@@ -1374,9 +1374,7 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 			}
 		} else {
 			// Handle file changes by updating affected programs
-			// TODO(nayeemrmn): ParsedOptions::FileNames should be updated here
-			// depending on change kinds and in some other cases.
-			for _, fileChange := range params.WorkspaceChange.FileChanges {
+			for _, fileChange := range params.ApplyWorkspaceChange.FileChanges {
 				// Clear document cache entry for changed file
 				s.deno.documentCacheMu.Lock()
 				normalizedUri := lsconv.FileNameToDocumentURI(tspath.NormalizePath(fileChange.Uri.FileName()))
@@ -1414,9 +1412,22 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 				}
 			}
 		}
-	}
-	if params.Request.LanguageServiceMethod != nil {
-		req := params.Request.LanguageServiceMethod
+		workspaceInfo := lsproto.DenoWorkspaceInfo{
+			CompilerOptionsKeysForAssets: make(map[lsproto.DocumentUri]string),
+		}
+		for compilerOptionsKey, pe := range s.deno.programEntries.byCompilerOptionsKey {
+			for _, file := range pe.program.SourceFiles() {
+				if strings.HasPrefix(file.FileName(), "asset:///") {
+					uri := lsconv.FileNameToDocumentURI(file.FileName())
+					if _, ok := workspaceInfo.CompilerOptionsKeysForAssets[uri]; !ok {
+						workspaceInfo.CompilerOptionsKeysForAssets[uri] = compilerOptionsKey
+					}
+				}
+			}
+		}
+		return workspaceInfo, nil
+	} else if params.LanguageServiceMethod != nil {
+		req := params.LanguageServiceMethod
 		pe, languageService, err := s.getDenoLanguageService(req.CompilerOptionsKey, req.NotebookUri)
 		if err != nil {
 			return nil, err
@@ -1531,8 +1542,8 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		default:
 			return nil, fmt.Errorf("Unsupported method: %s", req.Name)
 		}
-	} else if params.Request.GetAmbientModules != nil {
-		req := params.Request.GetAmbientModules
+	} else if params.GetAmbientModules != nil {
+		req := params.GetAmbientModules
 		pe, _, err := s.getDenoLanguageService(req.CompilerOptionsKey, req.NotebookUri)
 		if err != nil {
 			return nil, err
@@ -1541,8 +1552,8 @@ func (s *Server) handleDenoRequest(ctx context.Context, params *lsproto.DenoRequ
 		defer done()
 		symbols := checker.GetAmbientModules(nil)
 		return core.Map(symbols, func(s *ast.Symbol) string { return s.Name }), nil
-	} else if params.Request.WorkspaceSymbol != nil {
-		req := params.Request.WorkspaceSymbol
+	} else if params.WorkspaceSymbol != nil {
+		req := params.WorkspaceSymbol
 		var programs []*compiler.Program
 		var firstHost *DenoLanguageServiceHost
 		for _, pe := range s.deno.programEntries.byCompilerOptionsKey {

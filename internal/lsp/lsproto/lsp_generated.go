@@ -24363,15 +24363,11 @@ type DenoWorkspaceSymbolParams struct {
 	Query string `json:"query"`
 }
 
-type DenoRequest struct {
+type DenoRequestParams struct {
 	LanguageServiceMethod *DenoLanguageServiceMethodParams `json:"languageServiceMethod,omitempty"`
 	GetAmbientModules     *DenoGetAmbientModulesParams     `json:"getAmbientModules,omitempty"`
 	WorkspaceSymbol       *DenoWorkspaceSymbolParams       `json:"workspaceSymbol,omitempty"`
-}
-
-type DenoRequestParams struct {
-	Request         DenoRequest          `json:"request"`
-	WorkspaceChange *DenoWorkspaceChange `json:"workspaceChange,omitempty"`
+	ApplyWorkspaceChange  *DenoWorkspaceChange             `json:"applyWorkspaceChange,omitempty"`
 }
 
 var DenoRequestInfo = RequestInfo[*DenoRequestParams, any]{Method: MethodDenoRequest}
@@ -24427,6 +24423,10 @@ type DenoCallbackParams struct {
 	ResolveJsxImportSource      *DenoResolveJsxImportSourceParams      `json:"resolveJsxImportSource,omitempty"`
 	GetPackageScopeForPath      *DenoGetPackageScopeForPathParams      `json:"getPackageScopeForPath,omitempty"`
 	GetImpliedNodeFormatForFile *DenoGetImpliedNodeFormatForFileParams `json:"getImpliedNodeFormatForFile,omitempty"`
+}
+
+type DenoWorkspaceInfo struct {
+	CompilerOptionsKeysForAssets map[DocumentUri]string `json:"compilerOptionsKeysForAssets,omitempty"`
 }
 
 // Union types

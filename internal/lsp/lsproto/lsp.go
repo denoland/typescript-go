@@ -16,6 +16,9 @@ import (
 type DocumentUri string // !!!
 
 func (uri DocumentUri) FileName() string {
+	if suffix, ok := strings.CutPrefix(string(uri), "deno:/asset/"); ok {
+		return "asset:///" + suffix
+	}
 	if bundled.IsBundled(string(uri)) {
 		return string(uri)
 	}
