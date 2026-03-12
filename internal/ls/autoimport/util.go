@@ -18,7 +18,25 @@ import (
 	"github.com/microsoft/typescript-go/internal/packagejson"
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
+	"github.com/microsoft/typescript-go/internal/vfs/wrapvfs"
 )
+
+func tryGetModuleIDAndFileNameOfModuleSymbol(symbol *ast.Symbol) (ModuleID, string, bool) {
+	if !symbol.IsExternalModule() {
+		return "", "", false
+	}
+	decl := ast.GetNonAugmentationDeclaration(symbol)
+	if decl == nil {
+		return "", "", false
+	}
+	if decl.Kind == ast.KindSourceFile {
+		return ModuleID(decl.AsSourceFile().Path()), decl.AsSourceFile().FileName(), true
+	}
+	if ast.IsModuleWithStringLiteralName(decl) {
+		return ModuleID(decl.Name().Text()), "", true
+	}
+	return "", "", false
+}
 
 func getModuleIDAndFileNameOfModuleSymbol(symbol *ast.Symbol) (ModuleID, string) {
 	if !symbol.IsExternalModule() {
@@ -199,6 +217,10 @@ func createCheckerPool(program checker.Program) (getChecker func() (*checker.Che
 // to the given set, canonicalizing @types package names to their base names.
 func addPackageJsonDependencies(contents *packagejson.PackageJson, deps *collections.Set[string]) {
 	contents.RangeDependencies(func(name, _, field string) bool {
+		if name == "" || name == "@types/" || name[0] == '.' {
+			// Edge cases that could make us blow up probably
+			return true
+		}
 		if field == "dependencies" || field == "peerDependencies" {
 			deps.Add(module.GetPackageNameFromTypesPackageName(name))
 		}
@@ -229,4 +251,27 @@ func getPackageRealpathFuncs(fs vfs.FS, packageDir string) (toRealpath, toSymlin
 		return fileName
 	}
 	return toRealpath, toSymlink
+}
+
+type resolutionHost struct {
+	fs               vfs.FS
+	currentDirectory string
+}
+
+var _ module.ResolutionHost = (*resolutionHost)(nil)
+
+func (rh *resolutionHost) GetCurrentDirectory() string {
+	return rh.currentDirectory
+}
+
+func (rh *resolutionHost) FS() vfs.FS {
+	return rh.fs
+}
+
+func getModuleResolver(host RegistryCloneHost, realpath func(string) string, opts module.ResolverOptions) *module.Resolver {
+	rh := &resolutionHost{
+		fs:               wrapvfs.Wrap(host.FS(), wrapvfs.Replacements{Realpath: realpath}),
+		currentDirectory: host.GetCurrentDirectory(),
+	}
+	return module.NewResolverWithOptions(rh, core.EmptyCompilerOptions, "", "", opts)
 }

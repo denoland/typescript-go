@@ -55,6 +55,24 @@ type fileLoader struct {
 	foundNodeTypes      atomic.Bool
 }
 
+type redirectsFile struct {
+	// Index of file at which this redirect file needs to be iterated
+	index    int
+	fileName string
+	path     tspath.Path
+	target   tspath.Path
+}
+
+var _ ast.HasFileName = (*redirectsFile)(nil)
+
+func (r *redirectsFile) FileName() string {
+	return r.fileName
+}
+
+func (r *redirectsFile) Path() tspath.Path {
+	return r.path
+}
+
 type processedFiles struct {
 	resolver                      module.ResolverInterface
 	files                         []*ast.SourceFile
@@ -73,7 +91,11 @@ type processedFiles struct {
 	// if file was included using source file and its output is actually part of program
 	// this contains mapping from output to source file
 	outputFileToProjectReferenceSource map[tspath.Path]string
-	finishedProcessing                 bool
+	// Key is a file path. Value is the list of files that redirect to it (same package, different install location)
+	redirectTargetsMap map[tspath.Path][]string
+	// filesByPath for redirect files
+	redirectFilesByPath map[tspath.Path]*redirectsFile
+	finishedProcessing  bool
 }
 
 type jsxRuntimeImportSpecifier struct {
@@ -216,7 +238,9 @@ func (p *fileLoader) resolveAutomaticTypeDirectives(containingFileName string) (
 		toParse = make([]resolvedRef, 0, len(automaticTypeDirectiveNames))
 		typeResolutionsInFile = make(module.ModeAwareCache[*module.ResolvedTypeReferenceDirective], len(automaticTypeDirectiveNames))
 		for _, name := range automaticTypeDirectiveNames {
-			resolutionMode := core.ModuleKindNodeNext
+			// Under node16/nodenext module resolution, load `types`/ata include names as cjs resolution results by passing an `undefined` mode.
+			// Under bundler module resolution, this also triggers the "import" condition to be used.
+			resolutionMode := core.ResolutionModeNone
 			resolved, trace := p.resolver.ResolveTypeReferenceDirective(name, containingFileName, resolutionMode, nil)
 			typeResolutionsInFile[module.ModeAwareCacheKey{Name: name, Mode: resolutionMode}] = resolved
 			typeResolutionsTrace = append(typeResolutionsTrace, trace...)
@@ -229,6 +253,7 @@ func (p *fileLoader) resolveAutomaticTypeDirectives(containingFileName string) (
 						kind: fileIncludeKindAutomaticTypeDirectiveFile,
 						data: &automaticTypeDirectiveFileData{name, resolved.PackageId},
 					},
+					packageId: resolved.PackageId,
 				})
 			}
 		}
@@ -252,41 +277,6 @@ func (p *fileLoader) addProjectReferenceTasks(singleThreaded bool) {
 	}
 	rootTasks := createProjectReferenceParseTasks(projectReferences)
 	parser.parse(rootTasks)
-
-	// Add files from project references as root if the module kind is 'none'.
-	// This ensures that files from project references are included in the root tasks
-	// when no module system is specified, allowing including all files for global symbol merging
-	// !!! sheetal Do we really need it?
-	if len(p.opts.Config.FileNames()) != 0 {
-		for index, resolved := range p.projectReferenceFileMapper.getResolvedProjectReferences() {
-			if resolved == nil || resolved.CompilerOptions().GetEmitModuleKind() != core.ModuleKindNone {
-				continue
-			}
-			if p.opts.canUseProjectReferenceSource() {
-				for _, fileName := range resolved.FileNames() {
-					p.rootTasks = append(p.rootTasks, &parseTask{
-						normalizedFilePath: fileName,
-						includeReason: &FileIncludeReason{
-							kind: fileIncludeKindSourceFromProjectReference,
-							data: index,
-						},
-					})
-				}
-			} else {
-				for outputDts := range resolved.GetOutputDeclarationAndSourceFileNames() {
-					if outputDts != "" {
-						p.rootTasks = append(p.rootTasks, &parseTask{
-							normalizedFilePath: outputDts,
-							includeReason: &FileIncludeReason{
-								kind: fileIncludeKindOutputFromProjectReference,
-								data: index,
-							},
-						})
-					}
-				}
-			}
-		}
-	}
 }
 
 func (p *fileLoader) sortLibs(libFiles []*ast.SourceFile) {
@@ -344,9 +334,7 @@ func (p *fileLoader) parseSourceFile(t *parseTask) *ast.SourceFile {
 	sourceFile := p.opts.Host.GetSourceFile(ast.SourceFileParseOptions{
 		FileName:                       t.normalizedFilePath,
 		Path:                           path,
-		CompilerOptions:                ast.GetSourceFileAffectingCompilerOptions(t.normalizedFilePath, options),
 		ExternalModuleIndicatorOptions: ast.GetExternalModuleIndicatorOptions(t.normalizedFilePath, options, t.metadata),
-		JSDocParsingMode:               p.opts.JSDocParsingMode,
 	})
 	return sourceFile
 }
@@ -399,6 +387,7 @@ func (p *fileLoader) resolveTypeReferenceDirectives(t *parseTask) {
 				increaseDepth: resolved.IsExternalLibraryImport,
 				elideOnDepth:  false,
 				includeReason: includeReason,
+				packageId:     resolved.PackageId,
 			}, nil)
 		} else {
 			t.processingDiagnostics = append(t.processingDiagnostics, &processingDiagnostic{
@@ -513,6 +502,7 @@ func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {
 							synthetic: core.IfElse(importIndex < 0, entry, nil),
 						},
 					},
+					packageId: resolvedModule.PackageId,
 				}, nil)
 			}
 		}

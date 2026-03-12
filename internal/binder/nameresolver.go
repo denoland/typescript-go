@@ -308,7 +308,7 @@ loop:
 			lastLocation.AsSourceFile().CommonJSModuleIndicator != nil &&
 			name == "module" &&
 			originalLocation.Parent != nil &&
-			ast.IsModuleExportsAccessExpression(originalLocation.Parent) &&
+			(ast.IsModuleExportsAccessExpression(originalLocation.Parent) || ast.IsModuleExportsQualifiedName(originalLocation.Parent)) &&
 			meaning&lastLocation.Symbol().Flags != 0 {
 			return r.GetModuleSymbol(lastLocation)
 		}

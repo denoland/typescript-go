@@ -143,6 +143,10 @@ func IsAssignmentOperator(token Kind) bool {
 	return token >= KindFirstAssignment && token <= KindLastAssignment
 }
 
+func IsCompoundAssignment(token Kind) bool {
+	return token >= KindFirstCompoundAssignment && token <= KindLastCompoundAssignment
+}
+
 func IsAssignmentExpression(node *Node, excludeCompoundAssignment bool) bool {
 	if node.Kind == KindBinaryExpression {
 		expr := node.AsBinaryExpression()
@@ -153,7 +157,7 @@ func IsAssignmentExpression(node *Node, excludeCompoundAssignment bool) bool {
 }
 
 func GetRightMostAssignedExpression(node *Node) *Node {
-	for IsAssignmentExpression(node, true /*excludeCompoundAssignment*/) {
+	for IsAssignmentExpression(node, false /*excludeCompoundAssignment*/) {
 		node = node.AsBinaryExpression().Right
 	}
 	return node
@@ -165,6 +169,32 @@ func IsDestructuringAssignment(node *Node) bool {
 		return kind == KindObjectLiteralExpression || kind == KindArrayLiteralExpression
 	}
 	return false
+}
+
+func IsObjectBindingOrAssignmentElement(node *Node) bool {
+	switch node.Kind {
+	case KindBindingElement,
+		KindPropertyAssignment,
+		KindShorthandPropertyAssignment,
+		KindSpreadAssignment:
+		return true
+	}
+	return false
+}
+
+func IsArrayBindingOrAssignmentElement(node *Node) bool {
+	switch node.Kind {
+	case KindBindingElement,
+		KindOmittedExpression,
+		KindSpreadElement,
+		KindArrayLiteralExpression,
+		KindObjectLiteralExpression,
+		KindIdentifier,
+		KindPropertyAccessExpression,
+		KindElementAccessExpression:
+		return true
+	}
+	return IsAssignmentExpression(node, true /*excludeCompoundAssignment*/)
 }
 
 // A node is an assignment target if it is on the left hand side of an '=' token, if it is parented by a property
@@ -417,7 +447,7 @@ func isLeftHandSideExpressionKind(kind Kind) bool {
 
 // Determines whether a node is a LeftHandSideExpression based only on its kind.
 func IsLeftHandSideExpression(node *Node) bool {
-	return isLeftHandSideExpressionKind(node.Kind)
+	return isLeftHandSideExpressionKind(SkipPartiallyEmittedExpressions(node).Kind)
 }
 
 func isUnaryExpressionKind(kind Kind) bool {
@@ -436,7 +466,7 @@ func isUnaryExpressionKind(kind Kind) bool {
 
 // Determines whether a node is a UnaryExpression based only on its kind.
 func IsUnaryExpression(node *Node) bool {
-	return isUnaryExpressionKind(node.Kind)
+	return isUnaryExpressionKind(SkipPartiallyEmittedExpressions(node).Kind)
 }
 
 func isExpressionKind(kind Kind) bool {
@@ -458,7 +488,7 @@ func isExpressionKind(kind Kind) bool {
 
 // Determines whether a node is an expression based only on its kind.
 func IsExpression(node *Node) bool {
-	return isExpressionKind(node.Kind)
+	return isExpressionKind(SkipPartiallyEmittedExpressions(node).Kind)
 }
 
 func IsCommaExpression(node *Node) bool {
@@ -1191,6 +1221,44 @@ func IsVarUsing(node *Node) bool {
 	return GetCombinedNodeFlags(node)&NodeFlagsBlockScoped == NodeFlagsUsing
 }
 
+// GetJSDocDeprecatedTag returns the first @deprecated JSDoc tag for the given node, or nil if none exists.
+func GetJSDocDeprecatedTag(node *Node) *Node {
+	for _, jsdoc := range node.JSDoc(nil) {
+		tags := jsdoc.AsJSDoc().Tags
+		if tags != nil {
+			for _, tag := range tags.Nodes {
+				if IsJSDocDeprecatedTag(tag) {
+					return tag
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// IsDeprecatedDeclaration reports whether the given declaration is marked as @deprecated.
+// It checks NodeFlagsPossiblyContainsDeprecatedTag on combined node flags, then confirms
+// by walking up to find the node with the flag and performing a JSDoc lookup.
+func IsDeprecatedDeclaration(declaration *Node) bool {
+	return IsDeprecatedDeclarationWithCachedFlags(declaration, GetCombinedNodeFlags(declaration))
+}
+
+// IsDeprecatedDeclarationWithCachedFlags is the core logic for IsDeprecatedDeclaration,
+// parameterized on pre-computed combined flags so the checker can supply cached flags.
+func IsDeprecatedDeclarationWithCachedFlags(declaration *Node, combinedFlags NodeFlags) bool {
+	if combinedFlags&NodeFlagsPossiblyContainsDeprecatedTag == 0 {
+		return false
+	}
+	// Walk up to find the node that directly has the flag, since JSDoc is
+	// attached to that node (e.g. VariableStatement, not VariableDeclaration).
+	for n := declaration; n != nil; n = n.Parent {
+		if n.Flags&NodeFlagsPossiblyContainsDeprecatedTag != 0 {
+			return GetJSDocDeprecatedTag(n) != nil
+		}
+	}
+	return false
+}
+
 // Gets whether a bound `VariableDeclaration` or `VariableDeclarationList` is part of a `const` declaration.
 func IsVarConst(node *Node) bool {
 	return GetCombinedNodeFlags(node)&NodeFlagsBlockScoped == NodeFlagsConst
@@ -1286,7 +1354,7 @@ func IsImportOrExportSpecifier(node *Node) bool {
 	return IsImportSpecifier(node) || IsExportSpecifier(node)
 }
 
-func isVoidZero(node *Node) bool {
+func IsVoidZero(node *Node) bool {
 	return IsVoidExpression(node) && IsNumericLiteral(node.Expression()) && node.Expression().Text() == "0"
 }
 
@@ -1394,15 +1462,16 @@ func GetNameOfDeclaration(declaration *Node) *Node {
 func GetNonAssignedNameOfDeclaration(declaration *Node) *Node {
 	// !!!
 	switch declaration.Kind {
-	case KindBinaryExpression:
-		bin := declaration.AsBinaryExpression()
-		kind := GetAssignmentDeclarationKind(bin)
-		if kind == JSDeclarationKindProperty || kind == JSDeclarationKindThisProperty {
-			if name := GetElementOrPropertyAccessName(bin.Left); name != nil {
+	case KindBinaryExpression, KindCallExpression:
+		switch GetAssignmentDeclarationKind(declaration) {
+		case JSDeclarationKindProperty, JSDeclarationKindThisProperty, JSDeclarationKindExportsProperty:
+			left := declaration.AsBinaryExpression().Left
+			if name := GetElementOrPropertyAccessName(left); name != nil {
 				return name
-			} else {
-				return bin.Left
 			}
+			return left
+		case JSDeclarationKindObjectDefinePropertyValue, JSDeclarationKindObjectDefinePropertyExports:
+			return declaration.Arguments()[1]
 		}
 		return nil
 	case KindExportAssignment, KindJSExportAssignment:
@@ -1454,36 +1523,69 @@ type JSDeclarationKind int
 
 const (
 	JSDeclarationKindNone JSDeclarationKind = iota
-	/// module.exports = expr
+	// module.exports = expr
 	JSDeclarationKindModuleExports
-	/// exports.name = expr
-	/// module.exports.name = expr
+	// exports.name = expr
+	// module.exports.name = expr
 	JSDeclarationKindExportsProperty
-	/// this.name = expr
+	// this.name = expr
 	JSDeclarationKindThisProperty
-	/// F.name = expr, F[name] = expr
+	// F.name = expr, F[name] = expr, in JS or TS file
 	JSDeclarationKindProperty
+	// Object.defineProperty(x, 'name', { value: any, writable?: boolean (false by default) });
+	// Object.defineProperty(x, 'name', { get: Function, set: Function });
+	// Object.defineProperty(x, 'name', { get: Function });
+	// Object.defineProperty(x, 'name', { set: Function });
+	JSDeclarationKindObjectDefinePropertyValue
+	// Object.defineProperty(exports || module.exports, 'name', ...);
+	JSDeclarationKindObjectDefinePropertyExports
 )
 
-func GetAssignmentDeclarationKind(bin *BinaryExpression) JSDeclarationKind {
-	if bin.OperatorToken.Kind != KindEqualsToken || !IsAccessExpression(bin.Left) {
-		return JSDeclarationKindNone
-	}
-	if IsInJSFile(bin.Left) && IsModuleExportsAccessExpression(bin.Left) {
-		return JSDeclarationKindModuleExports
-	} else if IsInJSFile(bin.Left) &&
-		(IsModuleExportsAccessExpression(bin.Left.Expression()) || IsExportsIdentifier(bin.Left.Expression())) &&
-		GetElementOrPropertyAccessName(bin.Left) != nil {
-		return JSDeclarationKindExportsProperty
-	}
-	if IsInJSFile(bin.Left) && bin.Left.Expression().Kind == KindThisKeyword {
-		return JSDeclarationKindThisProperty
-	}
-	if bin.Left.Kind == KindPropertyAccessExpression && IsEntityNameExpressionEx(bin.Left.Expression(), IsInJSFile(bin.Left)) && IsIdentifier(bin.Left.Name()) ||
-		bin.Left.Kind == KindElementAccessExpression && IsEntityNameExpressionEx(bin.Left.Expression(), IsInJSFile(bin.Left)) {
-		return JSDeclarationKindProperty
+func GetAssignmentDeclarationKind(node *Node) JSDeclarationKind {
+	switch node.Kind {
+	case KindBinaryExpression:
+		bin := node.AsBinaryExpression()
+		if bin.OperatorToken.Kind == KindEqualsToken && IsAccessExpression(bin.Left) {
+			if IsInJSFile(bin.Left) {
+				if IsModuleExportsAccessExpression(bin.Left) {
+					return JSDeclarationKindModuleExports
+				}
+				if (IsModuleExportsAccessExpression(bin.Left.Expression()) || IsExportsIdentifier(bin.Left.Expression())) &&
+					GetElementOrPropertyAccessName(bin.Left) != nil {
+					return JSDeclarationKindExportsProperty
+				}
+				if bin.Left.Expression().Kind == KindThisKeyword {
+					return JSDeclarationKindThisProperty
+				}
+			}
+			if bin.Left.Kind == KindPropertyAccessExpression && IsEntityNameExpressionEx(bin.Left.Expression(), IsInJSFile(bin.Left)) && IsIdentifier(bin.Left.Name()) ||
+				bin.Left.Kind == KindElementAccessExpression && IsEntityNameExpressionEx(bin.Left.Expression(), IsInJSFile(bin.Left)) {
+				return JSDeclarationKindProperty
+			}
+		}
+	case KindCallExpression:
+		if IsInJSFile(node) && IsBindableObjectDefinePropertyCall(node) {
+			entityName := node.Arguments()[0]
+			if IsExportsIdentifier(entityName) || IsModuleExportsAccessExpression(entityName) {
+				return JSDeclarationKindObjectDefinePropertyExports
+			}
+			return JSDeclarationKindObjectDefinePropertyValue
+		}
 	}
 	return JSDeclarationKindNone
+}
+
+func IsBindableObjectDefinePropertyCall(node *Node) bool {
+	if args := node.Arguments(); len(args) == 3 {
+		if expr := node.Expression(); IsPropertyAccessExpression(expr) &&
+			IsIdentifier(expr.Expression()) && expr.Expression().Text() == "Object" &&
+			expr.Name().Text() == "defineProperty" &&
+			IsStringOrNumericLiteralLike(args[1]) &&
+			IsBindableStaticNameExpression(args[0] /*excludeThisKeyword*/, true) {
+			return true
+		}
+	}
+	return false
 }
 
 /**
@@ -1517,31 +1619,17 @@ func IsEntityNameExpression(node *Node) bool {
 }
 
 func IsEntityNameExpressionEx(node *Node, allowJS bool) bool {
-	if node.Kind == KindIdentifier || IsPropertyAccessEntityNameExpression(node, allowJS) {
-		return true
-	}
-	if allowJS {
-		return node.Kind == KindThisKeyword || isElementAccessEntityNameExpression(node, allowJS)
-	}
-	return false
+	return IsIdentifier(node) ||
+		IsPropertyAccessEntityNameExpression(node, allowJS) ||
+		allowJS && (node.Kind == KindThisKeyword || isElementAccessEntityNameExpression(node, allowJS))
 }
 
 func IsPropertyAccessEntityNameExpression(node *Node, allowJS bool) bool {
-	if node.Kind == KindPropertyAccessExpression {
-		expr := node.AsPropertyAccessExpression()
-		return expr.Name().Kind == KindIdentifier && IsEntityNameExpressionEx(expr.Expression, allowJS)
-	}
-	return false
+	return IsPropertyAccessExpression(node) && node.Name().Kind == KindIdentifier && IsEntityNameExpressionEx(node.Expression(), allowJS)
 }
 
 func isElementAccessEntityNameExpression(node *Node, allowJS bool) bool {
-	if node.Kind == KindElementAccessExpression {
-		expr := node.AsElementAccessExpression()
-		if IsStringOrNumericLiteralLike(SkipParentheses(expr.ArgumentExpression)) {
-			return IsEntityNameExpressionEx(expr.Expression, allowJS)
-		}
-	}
-	return false
+	return IsElementAccessExpression(node) && IsStringOrNumericLiteralLike(node.AsElementAccessExpression().ArgumentExpression) && IsEntityNameExpressionEx(node.Expression(), allowJS)
 }
 
 func IsDottedName(node *Node) bool {
@@ -1790,11 +1878,18 @@ func IsInstanceOfExpression(node *Node) bool {
 }
 
 func IsAnyImportOrReExport(node *Node) bool {
-	return IsAnyImportSyntax(node) || IsExportDeclaration(node)
+	return IsImportNode(node) || IsExportDeclaration(node)
 }
 
+func IsImportNode(node *Node) bool {
+	return IsAnyImportSyntax(node) || NodeKindIs(node, KindJSImportDeclaration)
+}
+
+// Checks if the node is a genuine import declation. In particular the re-parsed KindJSImportDeclaration
+// is explicitly excluded because the callers of this function are typically not prepared to handle it properly.
+// For more permissive check, use IsImportNode.
 func IsAnyImportSyntax(node *Node) bool {
-	return NodeKindIs(node, KindImportDeclaration, KindJSImportDeclaration, KindImportEqualsDeclaration)
+	return NodeKindIs(node, KindImportDeclaration, KindImportEqualsDeclaration)
 }
 
 func IsJsonSourceFile(file *SourceFile) bool {
@@ -2009,6 +2104,25 @@ func IsComputedNonLiteralName(name *Node) bool {
 
 func IsQuestionToken(node *Node) bool {
 	return node != nil && node.Kind == KindQuestionToken
+}
+
+func EntityNameToString(name *Node, getTextOfNode func(*Node) string) string {
+	switch name.Kind {
+	case KindThisKeyword:
+		return "this"
+	case KindIdentifier, KindPrivateIdentifier:
+		if NodeIsSynthesized(name) || getTextOfNode == nil {
+			return name.Text()
+		}
+		return getTextOfNode(name)
+	case KindQualifiedName:
+		return EntityNameToString(name.AsQualifiedName().Left, getTextOfNode) + "." + EntityNameToString(name.AsQualifiedName().Right, getTextOfNode)
+	case KindPropertyAccessExpression:
+		return EntityNameToString(name.Expression(), getTextOfNode) + "." + EntityNameToString(name.AsPropertyAccessExpression().Name(), getTextOfNode)
+	case KindJsxNamespacedName:
+		return EntityNameToString(name.AsJsxNamespacedName().Namespace, getTextOfNode) + ":" + EntityNameToString(name.AsJsxNamespacedName().Name(), getTextOfNode)
+	}
+	panic("Unhandled case in EntityNameToString")
 }
 
 func GetTextOfPropertyName(name *Node) string {
@@ -2710,20 +2824,34 @@ func GetPragmaArgument(pragma *Pragma, name string) string {
 // The variable must not be exported and must not have a type annotation, even a jsdoc one.
 // The initializer must be a call to `require` with a string literal or a string literal-like argument.
 func IsVariableDeclarationInitializedToRequire(node *Node) bool {
-	if !IsInJSFile(node) {
-		return false
-	}
 	if node.Kind == KindBindingElement {
 		node = node.Parent.Parent
+	}
+	return isVariableDeclarationInitializedWithRequireHelper(node, false /*allowAccessedRequire*/)
+}
+
+func IsVariableDeclarationInitializedToBareOrAccessedRequire(node *Node) bool {
+	return isVariableDeclarationInitializedWithRequireHelper(node, true /*allowAccessedRequire*/)
+}
+
+func isVariableDeclarationInitializedWithRequireHelper(node *Node, allowAccessedRequire bool) bool {
+	if !IsInJSFile(node) {
+		return false
 	}
 	if node.Kind != KindVariableDeclaration {
 		return false
 	}
+	initializer := node.Initializer()
+	if initializer == nil {
+		return false
+	}
+	if allowAccessedRequire {
+		initializer = GetLeftmostAccessExpression(initializer)
+	}
 
 	return node.Parent.Parent.ModifierFlags()&ModifierFlagsExport == 0 &&
-		node.Initializer() != nil &&
 		node.Type() == nil &&
-		IsRequireCall(node.Initializer(), true /*requireStringLiteralLikeArgument*/)
+		IsRequireCall(initializer, true /*requireStringLiteralLikeArgument*/)
 }
 
 func IsModuleExportsAccessExpression(node *Node) bool {
@@ -2733,6 +2861,10 @@ func IsModuleExportsAccessExpression(node *Node) bool {
 		}
 	}
 	return false
+}
+
+func IsModuleExportsQualifiedName(node *Node) bool {
+	return IsQualifiedName(node) && IsModuleIdentifier(node.AsQualifiedName().Left) && node.AsQualifiedName().Right.Text() == "exports"
 }
 
 func IsCheckJSEnabledForFile(sourceFile *SourceFile, compilerOptions *core.CompilerOptions) bool {
@@ -2861,12 +2993,20 @@ func IsParameterPropertyModifier(kind Kind) bool {
 }
 
 func ForEachChildAndJSDoc(node *Node, sourceFile *SourceFile, v Visitor) bool {
-	if node.Flags&NodeFlagsHasJSDoc != 0 {
-		if visitNodes(v, node.JSDoc(sourceFile)) {
-			return true
-		}
+	if visitNodes(v, node.JSDoc(sourceFile)) {
+		return true
 	}
 	return node.ForEachChild(v)
+}
+
+func HasTypeArguments(node *Node) bool {
+	switch node.Kind {
+	case KindCallExpression, KindNewExpression, KindTaggedTemplateExpression,
+		KindTypeReference, KindExpressionWithTypeArguments, KindImportType,
+		KindTypeQuery, KindJsxOpeningElement, KindJsxSelfClosingElement:
+		return true
+	}
+	return false
 }
 
 func IsTypeReferenceType(node *Node) bool {
@@ -3573,14 +3713,14 @@ func IsCallOrNewExpression(node *Node) bool {
 }
 
 func IndexOfNode(nodes []*Node, node *Node) int {
-	index, ok := slices.BinarySearchFunc(nodes, node, compareNodePositions)
+	index, ok := slices.BinarySearchFunc(nodes, node, CompareNodePositions)
 	if ok {
 		return index
 	}
 	return -1
 }
 
-func compareNodePositions(n1, n2 *Node) int {
+func CompareNodePositions(n1, n2 *Node) int {
 	return n1.Pos() - n2.Pos()
 }
 
@@ -3644,7 +3784,7 @@ func hasComment(kind Kind) bool {
 		KindJSDocReadonlyTag, KindJSDocOverrideTag, KindJSDocCallbackTag, KindJSDocOverloadTag,
 		KindJSDocParameterTag, KindJSDocPropertyTag, KindJSDocReturnTag, KindJSDocThisTag,
 		KindJSDocTypeTag, KindJSDocTemplateTag, KindJSDocTypedefTag, KindJSDocSeeTag,
-		KindJSDocSatisfiesTag, KindJSDocImportTag:
+		KindJSDocThrowsTag, KindJSDocSatisfiesTag, KindJSDocImportTag:
 		return true
 	default:
 		return false
@@ -3759,7 +3899,7 @@ func TryGetPropertyNameOfBindingOrAssignmentElement(bindingElement *Node) *Node 
 		// `1` in `let { 1: b } = ...`
 		if bindingElement.PropertyName() != nil {
 			propertyName := bindingElement.PropertyName()
-			// if ast.IsPrivateIdentifier(propertyName) {
+			// if IsPrivateIdentifier(propertyName) {
 			// 	return Debug.failBadSyntaxKind(propertyName) // !!!
 			// }
 			if IsComputedPropertyName(propertyName) && IsStringOrNumericLiteralLike(propertyName.Expression()) {
@@ -3774,7 +3914,7 @@ func TryGetPropertyNameOfBindingOrAssignmentElement(bindingElement *Node) *Node 
 		// `1` in `({ 1: b } = ...)`
 		if bindingElement.Name() != nil {
 			propertyName := bindingElement.Name()
-			// if ast.IsPrivateIdentifier(propertyName) {
+			// if IsPrivateIdentifier(propertyName) {
 			// 	return Debug.failBadSyntaxKind(propertyName) // !!!
 			// }
 			if IsComputedPropertyName(propertyName) && IsStringOrNumericLiteralLike(propertyName.Expression()) {
@@ -3784,7 +3924,7 @@ func TryGetPropertyNameOfBindingOrAssignmentElement(bindingElement *Node) *Node 
 		}
 	case KindSpreadAssignment:
 		// `a` in `({ ...a } = ...)`
-		// if ast.IsPrivateIdentifier(bindingElement.Name()) {
+		// if IsPrivateIdentifier(bindingElement.Name()) {
 		// 	return Debug.failBadSyntaxKind(bindingElement.Name()) // !!!
 		// }
 		return bindingElement.Name()
@@ -3933,7 +4073,7 @@ func HasContextSensitiveParameters(node *Node) bool {
 			// an implicit 'this' parameter which is subject to contextual typing.
 			parameter := core.FirstOrNil(node.Parameters())
 			if parameter == nil || !IsThisParameter(parameter) {
-				return true
+				return node.Flags&NodeFlagsContainsThis != 0
 			}
 		}
 	}
@@ -4097,7 +4237,7 @@ func GetAllAccessorDeclarationsForDeclaration(accessor *AccessorDeclaration, dec
 	} else {
 		panic(fmt.Sprintf("Unexpected node kind %q", accessor.Kind))
 	}
-	// otherAccessor := ast.GetDeclarationOfKind(c.getSymbolOfDeclaration(accessor), otherKind)
+	// otherAccessor := GetDeclarationOfKind(c.getSymbolOfDeclaration(accessor), otherKind)
 	var otherAccessor *AccessorDeclaration
 	for _, d := range declarationsOfSymbol {
 		if d.Kind == otherKind {
@@ -4189,6 +4329,25 @@ func GetRestParameterElementType(node *ParameterDeclarationNode) *Node {
 	return nil
 }
 
+func TagNamesAreEquivalent(lhs *Expression, rhs *Expression) bool {
+	if lhs.Kind != rhs.Kind {
+		return false
+	}
+	switch lhs.Kind {
+	case KindIdentifier:
+		return lhs.Text() == rhs.Text()
+	case KindThisKeyword:
+		return true
+	case KindJsxNamespacedName:
+		return lhs.AsJsxNamespacedName().Namespace.Text() == rhs.AsJsxNamespacedName().Namespace.Text() &&
+			lhs.AsJsxNamespacedName().Name().Text() == rhs.AsJsxNamespacedName().Name().Text()
+	case KindPropertyAccessExpression:
+		return lhs.AsPropertyAccessExpression().Name().Text() == rhs.AsPropertyAccessExpression().Name().Text() &&
+			TagNamesAreEquivalent(lhs.Expression(), rhs.Expression())
+	}
+	panic("Unhandled case in TagNamesAreEquivalent")
+}
+
 func isTagName(node *Node) bool {
 	return node.Parent != nil && IsJSDocTag(node.Parent) && node.Parent.TagName() == node
 }
@@ -4208,4 +4367,48 @@ func isArgumentOfElementAccessExpression(node *Node) bool {
 	return node != nil && node.Parent != nil &&
 		node.Parent.Kind == KindElementAccessExpression &&
 		node.Parent.AsElementAccessExpression().ArgumentExpression == node
+}
+
+// If the given node is part of a subtree of JSDoc nodes that have been cloned into a reparsed construct,
+// return the corresponding reparsed clone in the subtree. Otherwise, just return the node.
+func GetReparsedNodeForNode(node *Node) *Node {
+	if node != nil && node.Flags&NodeFlagsJSDoc != 0 && node.Flags&NodeFlagsReparsed == 0 {
+		if file := GetSourceFileOfNode(node); file != nil && len(file.ReparsedClones) != 0 {
+			pos, found := slices.BinarySearchFunc(file.ReparsedClones, node, CompareNodePositions)
+			if !found && pos > 0 {
+				pos--
+			}
+			candidate := file.ReparsedClones[pos]
+			if node.Loc.ContainedBy(candidate.Loc) {
+				if reparsed := findCloneInNode(candidate, node); reparsed != nil {
+					return reparsed
+				}
+			}
+		}
+	}
+	return node
+}
+
+func findCloneInNode(node *Node, original *Node) *Node {
+	for {
+		if node.Kind == original.Kind && node.Loc == original.Loc {
+			return node
+		}
+		foundContainingChild := node.ForEachChild(func(n *Node) bool {
+			if original.Loc.ContainedBy(n.Loc) {
+				node = n
+				return true
+			}
+			return false
+		})
+		if !foundContainingChild {
+			return nil
+		}
+	}
+}
+
+// IsSuperProperty checks if a node is super.x or super[x].
+func IsSuperProperty(node *Node) bool {
+	return (IsPropertyAccessExpression(node) || IsElementAccessExpression(node)) &&
+		node.Expression().Kind == KindSuperKeyword
 }

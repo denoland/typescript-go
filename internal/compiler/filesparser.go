@@ -25,6 +25,7 @@ type parseTask struct {
 	startedSubTasks             bool
 	isForAutomaticTypeDirective bool
 	includeReason               *FileIncludeReason
+	packageId                   module.PackageId
 
 	metadata                     ast.SourceFileMetaData
 	resolutionsInFile            module.ModeAwareCache[*module.ResolvedModule]
@@ -172,6 +173,7 @@ type resolvedRef struct {
 	increaseDepth bool
 	elideOnDepth  bool
 	includeReason *FileIncludeReason
+	packageId     module.PackageId
 }
 
 func (t *parseTask) addSubTask(ref resolvedRef, libFile *LibFile) {
@@ -182,6 +184,7 @@ func (t *parseTask) addSubTask(ref resolvedRef, libFile *LibFile) {
 		increaseDepth:      ref.increaseDepth,
 		elideOnDepth:       ref.elideOnDepth,
 		includeReason:      ref.includeReason,
+		packageId:          ref.packageId,
 	}
 	t.subTasks = append(t.subTasks, subTask)
 }
@@ -198,6 +201,7 @@ type parseTaskData struct {
 	mu              sync.Mutex
 	lowestDepth     int
 	startedSubTasks bool
+	packageId       module.PackageId
 }
 
 func (w *filesParser) parse(loader *fileLoader, tasks []*parseTask) {
@@ -226,6 +230,11 @@ func (w *filesParser) start(loader *fileLoader, tasks []*parseTask, depth int) {
 					// This is new task for file name - so load subtasks if there was loading for any other casing
 					startSubtasks = data.startedSubTasks
 				}
+			}
+
+			// Propagate packageId to data if we have one and data doesn't yet
+			if data.packageId.Name == "" && task.packageId.Name != "" {
+				data.packageId = task.packageId
 			}
 
 			currentDepth := core.IfElse(task.increaseDepth, depth+1, depth)
@@ -291,6 +300,14 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 	var sourceFilesFoundSearchingNodeModules collections.Set[tspath.Path]
 	libFilesMap := make(map[tspath.Path]*LibFile, libFileCount)
 
+	var redirectTargetsMap map[tspath.Path][]string
+	var redirectFilesByPath map[tspath.Path]*redirectsFile
+	var packageIdToSourceFile map[module.PackageId]*ast.SourceFile
+	if !loader.opts.Config.CompilerOptions().DeduplicatePackages.IsFalse() {
+		redirectTargetsMap = make(map[tspath.Path][]string)
+		packageIdToSourceFile = make(map[module.PackageId]*ast.SourceFile)
+	}
+
 	var collectFiles func(tasks []*parseTask, seen map[*parseTaskData]string)
 	collectFiles = func(tasks []*parseTask, seen map[*parseTaskData]string) {
 		for _, task := range tasks {
@@ -339,6 +356,30 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 			for _, trace := range task.resolutionsTrace {
 				loader.opts.Host.Trace(trace.Message, trace.Args...)
 			}
+
+			file := task.file
+			if packageIdToSourceFile != nil && data.packageId.Name != "" {
+				if packageIdFile, exists := packageIdToSourceFile[data.packageId]; exists {
+					redirectTargetsMap[packageIdFile.Path()] = append(redirectTargetsMap[packageIdFile.Path()], task.normalizedFilePath)
+					if redirectFilesByPath == nil {
+						redirectFilesByPath = make(map[tspath.Path]*redirectsFile, totalFileCount)
+					}
+					redirectFilesByPath[task.path] = &redirectsFile{
+						index:    len(files) + len(redirectFilesByPath),
+						fileName: task.normalizedFilePath,
+						path:     task.path,
+						target:   packageIdFile.Path(),
+					}
+					filesByPath[task.path] = packageIdFile
+					if data.lowestDepth > 0 {
+						sourceFilesFoundSearchingNodeModules.Add(task.path)
+					}
+					continue
+				} else if file != nil {
+					packageIdToSourceFile[data.packageId] = file
+				}
+			}
+
 			if subTasks := task.subTasks; len(subTasks) > 0 {
 				collectFiles(subTasks, seen)
 			}
@@ -357,7 +398,7 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 				typeResolutionsInFile[task.path] = task.typeResolutionsInFile
 				continue
 			}
-			file := task.file
+
 			path := task.path
 
 			if len(task.processingDiagnostics) > 0 {
@@ -403,6 +444,9 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 	loader.sortLibs(libFiles)
 
 	allFiles := append(libFiles, files...)
+	for _, redirectFile := range redirectFilesByPath {
+		redirectFile.index += len(libFiles)
+	}
 
 	keys := slices.Collect(loader.pathForLibFileResolutions.Keys())
 	slices.Sort(keys)
@@ -432,6 +476,8 @@ func (w *filesParser) getProcessedFiles(loader *fileLoader) processedFiles {
 		missingFiles:                         missingFiles,
 		includeProcessor:                     includeProcessor,
 		outputFileToProjectReferenceSource:   outputFileToProjectReferenceSource,
+		redirectTargetsMap:                   redirectTargetsMap,
+		redirectFilesByPath:                  redirectFilesByPath,
 	}
 }
 

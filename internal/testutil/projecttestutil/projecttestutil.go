@@ -74,7 +74,7 @@ func (h *SessionUtils) SetupNpmExecutorForTypingsInstaller() {
 
 		if lenNpmInstallArgs == 3 && npmInstallArgs[2] == "types-registry@latest" {
 			// Write typings file
-			err := h.fs.WriteFile(cwd+"/node_modules/types-registry/index.json", h.createTypesRegistryFileContent(), false)
+			err := h.fs.WriteFile(cwd+"/node_modules/types-registry/index.json", h.createTypesRegistryFileContent())
 			return nil, err
 		}
 
@@ -100,7 +100,7 @@ func (h *SessionUtils) SetupNpmExecutorForTypingsInstaller() {
 			if !ok {
 				return nil, fmt.Errorf("content not provided for %s", packageBaseName)
 			}
-			err := h.fs.WriteFile(cwd+"/node_modules/@types/"+packageBaseName+"/index.d.ts", content, false)
+			err := h.fs.WriteFile(cwd+"/node_modules/@types/"+packageBaseName+"/index.d.ts", content)
 			if err != nil {
 				return nil, err
 			}
@@ -215,10 +215,11 @@ func SetupWithRealFS() (*project.Session, *SessionUtils) {
 	}
 
 	return project.NewSession(&project.SessionInit{
-		FS:          fs,
-		Client:      clientMock,
-		NpmExecutor: npmExecutorMock,
-		Logger:      sessionUtils.logger,
+		BackgroundCtx: context.Background(),
+		FS:            fs,
+		Client:        clientMock,
+		NpmExecutor:   npmExecutorMock,
+		Logger:        sessionUtils.logger,
 		Options: &project.SessionOptions{
 			CurrentDirectory:       wd,
 			DefaultLibraryPath:     bundled.LibPath(),
@@ -281,10 +282,11 @@ func GetSessionInitOptions(files map[string]any, options *project.SessionOptions
 	}
 
 	return &project.SessionInit{
-		Options:     options,
-		FS:          fs,
-		Client:      clientMock,
-		NpmExecutor: npmExecutorMock,
-		Logger:      sessionUtils.logger,
+		BackgroundCtx: context.Background(),
+		Options:       options,
+		FS:            fs,
+		Client:        clientMock,
+		NpmExecutor:   npmExecutorMock,
+		Logger:        sessionUtils.logger,
 	}, sessionUtils
 }

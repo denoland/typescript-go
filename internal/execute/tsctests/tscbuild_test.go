@@ -391,7 +391,7 @@ func TestBuildConfigFileErrors(t *testing.T) {
 									"a.ts",
 									"b.ts"
 								]
-							}`), false)
+							}`))
 					},
 				},
 			},
@@ -449,7 +449,7 @@ func TestBuildConfigFileErrors(t *testing.T) {
 									"a.ts",
 									"b.ts"
 								]
-							}`), false)
+							}`))
 					},
 				},
 			},
@@ -718,7 +718,7 @@ func TestBuildDemoProject(t *testing.T) {
 									"rootDir": "."
 								},
 							}
-						`), false)
+						`))
 					},
 				},
 			},
@@ -1079,6 +1079,153 @@ func TestBuildInferredTypeFromTransitiveModule(t *testing.T) {
 
 	for _, test := range testCases {
 		test.run(t, "inferredTypeFromTransitiveModule")
+	}
+}
+
+func TestBuildInferredTypeFromMonorepoReference(t *testing.T) {
+	t.Parallel()
+	testCases := []*tscInput{
+		{
+			subScenario: "inferred type from referenced project that references another project in monorepo",
+			files: FileMap{
+				// Root package.json and tsconfig.json
+				"/home/src/workspaces/solution/package.json": stringtestutil.Dedent(`
+					{
+						"name": "tsgo-monorepo-issue",
+						"private": true,
+						"workspaces": ["packages/*"]
+					}`),
+				"/home/src/workspaces/solution/tsconfig.json": stringtestutil.Dedent(`
+					{
+						"files": [],
+						"include": [],
+						"references": [
+							{ "path": "packages/package-a" },
+							{ "path": "packages/package-b" },
+							{ "path": "packages/package-c" }
+						]
+					}`),
+				// package-c: exports MyType interface
+				"/home/src/workspaces/solution/packages/package-c/package.json": stringtestutil.Dedent(`
+					{
+						"name": "package-c",
+						"version": "1.0.0",
+						"private": true,
+						"type": "module",
+						"main": "./src/index.ts",
+						"types": "./src/index.ts",
+						"exports": {
+							".": "./src/index.ts"
+						}
+					}`),
+				"/home/src/workspaces/solution/packages/package-c/tsconfig.json": stringtestutil.Dedent(`
+					{
+						"compilerOptions": {
+							"composite": true,
+							"declaration": true,
+							"emitDeclarationOnly": true,
+							"module": "ESNext",
+							"moduleResolution": "Bundler",
+							"target": "ES2022",
+							"outDir": "./out",
+							"rootDir": "./src"
+						},
+						"include": ["src/**/*"]
+					}`),
+				"/home/src/workspaces/solution/packages/package-c/src/index.ts": stringtestutil.Dedent(`
+					export interface MyType {
+						id: string;
+						name: string;
+						enabled: boolean;
+					}`),
+				// package-b: project reference to package-c, exports createThing() returning MyType
+				"/home/src/workspaces/solution/packages/package-b/package.json": stringtestutil.Dedent(`
+					{
+						"name": "package-b",
+						"version": "1.0.0",
+						"private": true,
+						"type": "module",
+						"main": "./src/index.ts",
+						"types": "./src/index.ts",
+						"exports": {
+							".": "./src/index.ts"
+						},
+						"dependencies": {
+							"package-c": "workspace:*"
+						}
+					}`),
+				"/home/src/workspaces/solution/packages/package-b/tsconfig.json": stringtestutil.Dedent(`
+					{
+						"compilerOptions": {
+							"composite": true,
+							"declaration": true,
+							"emitDeclarationOnly": true,
+							"module": "ESNext",
+							"moduleResolution": "Bundler",
+							"target": "ES2022",
+							"outDir": "./out",
+							"rootDir": "./src"
+						},
+						"include": ["src/**/*"],
+						"references": [{ "path": "../package-c" }]
+					}`),
+				"/home/src/workspaces/solution/packages/package-b/src/index.ts": stringtestutil.Dedent(`
+					import type { MyType } from "package-c";
+
+					export function createThing(input: MyType): MyType {
+						return { ...input };
+					}`),
+				// package-a: project reference to package-b only (not package-c), uses createThing() without type annotation
+				"/home/src/workspaces/solution/packages/package-a/package.json": stringtestutil.Dedent(`
+					{
+						"name": "package-a",
+						"version": "1.0.0",
+						"private": true,
+						"type": "module",
+						"main": "./src/index.ts",
+						"types": "./src/index.ts",
+						"exports": {
+							".": "./src/index.ts"
+						},
+						"dependencies": {
+							"package-b": "workspace:*"
+						}
+					}`),
+				"/home/src/workspaces/solution/packages/package-a/tsconfig.json": stringtestutil.Dedent(`
+					{
+						"compilerOptions": {
+							"composite": true,
+							"declaration": true,
+							"emitDeclarationOnly": true,
+							"module": "ESNext",
+							"moduleResolution": "Bundler",
+							"target": "ES2022",
+							"outDir": "./out",
+							"rootDir": "./src"
+						},
+						"include": ["src/**/*"],
+						"references": [{ "path": "../package-b" }]
+					}`),
+				"/home/src/workspaces/solution/packages/package-a/src/index.ts": stringtestutil.Dedent(`
+					import { createThing } from "package-b";
+
+					class MyClass {
+						public thing = createThing({ id: "1", name: "test", enabled: true });
+					}
+
+					export { MyClass };`),
+				// Symlinks for node_modules to simulate pnpm/yarn workspace hoisting
+				"/home/src/workspaces/solution/node_modules/package-a": vfstest.Symlink("/home/src/workspaces/solution/packages/package-a"),
+				"/home/src/workspaces/solution/node_modules/package-b": vfstest.Symlink("/home/src/workspaces/solution/packages/package-b"),
+				"/home/src/workspaces/solution/node_modules/package-c": vfstest.Symlink("/home/src/workspaces/solution/packages/package-c"),
+			},
+			cwd:             "/home/src/workspaces/solution",
+			commandLineArgs: []string{"--b", "--verbose"},
+		},
+	}
+
+	for _, test := range testCases {
+		test.run(t, "inferredTypeFromMonorepoReference")
 	}
 }
 
@@ -1563,7 +1710,7 @@ func TestBuildOutputPaths(t *testing.T) {
                 }`),
 			},
 			expectedDtsNames: []string{
-				"/home/src/workspaces/project/dist/index.js",
+				"/home/src/workspaces/project/dist/src/index.js",
 			},
 		},
 		{
@@ -1783,7 +1930,7 @@ func TestBuildProgramUpdates(t *testing.T) {
 								tags() { }
 								private p = 12
 							};
-						`), false)
+						`))
 					},
 				},
 				{
@@ -1822,7 +1969,7 @@ func TestBuildProgramUpdates(t *testing.T) {
 								tags() { }
 								private p = 12
 							};
-						`), false)
+						`))
 					},
 				},
 				{
@@ -1859,7 +2006,6 @@ func TestBuildProgramUpdates(t *testing.T) {
 									"noUnusedParameters": false,
 								},
 							}`),
-							false,
 						)
 					},
 				},
@@ -1941,7 +2087,7 @@ func TestBuildProgramUpdates(t *testing.T) {
                             "compilerOptions": {
 								"strict": true
 							}
-                        }`), false)
+                        }`))
 					},
 				},
 				{
@@ -1951,7 +2097,7 @@ func TestBuildProgramUpdates(t *testing.T) {
 						{
                             "extends": "./alpha.tsconfig.json",
                             "compilerOptions": { "strict": false }
-                        }`), false)
+                        }`))
 					},
 				},
 				{
@@ -1961,13 +2107,13 @@ func TestBuildProgramUpdates(t *testing.T) {
 						{
                             "extends": "./alpha.tsconfig.json",
                             "files": ["other.ts"]
-                        }`), false)
+                        }`))
 					},
 				},
 				{
 					caption: "update aplha config",
 					edit: func(sys *TestSys) {
-						sys.writeFileNoError("/user/username/projects/project/alpha.tsconfig.json", "{}", false)
+						sys.writeFileNoError("/user/username/projects/project/alpha.tsconfig.json", "{}")
 					},
 				},
 				{
@@ -1976,7 +2122,7 @@ func TestBuildProgramUpdates(t *testing.T) {
 						sys.writeFileNoError("/user/username/projects/project/extendsConfig2.tsconfig.json", stringtestutil.Dedent(`
 						{
                             "compilerOptions": { "strictNullChecks": true }
-                        }`), false)
+                        }`))
 					},
 				},
 				{
@@ -1987,7 +2133,7 @@ func TestBuildProgramUpdates(t *testing.T) {
                             "extends": ["./extendsConfig1.tsconfig.json", "./extendsConfig2.tsconfig.json"],
                             "compilerOptions": { "composite": false },
                             "files": ["other2.ts"],
-                        }`), false)
+                        }`))
 					},
 				},
 				{
@@ -2059,7 +2205,7 @@ func TestBuildProgramUpdates(t *testing.T) {
                                 },
                             ],
                             "files": [],
-                        }`), false)
+                        }`))
 					},
 				},
 			},
@@ -3077,13 +3223,13 @@ class someClass2 { }`,
 			{
 				caption: "Change to new File and build core",
 				edit: func(sys *TestSys) {
-					sys.writeFileNoError("/user/username/projects/sample1/core/newfile.ts", `export const newFileConst = 30;`, false)
+					sys.writeFileNoError("/user/username/projects/sample1/core/newfile.ts", `export const newFileConst = 30;`)
 				},
 			},
 			{
 				caption: "Change to new File and build core",
 				edit: func(sys *TestSys) {
-					sys.writeFileNoError("/user/username/projects/sample1/core/newfile.ts", "\nexport class someClass2 { }", false)
+					sys.writeFileNoError("/user/username/projects/sample1/core/newfile.ts", "\nexport class someClass2 { }")
 				},
 			},
 		}
@@ -3230,7 +3376,7 @@ class someClass2 { }`,
 					// Update a file in the leaf node (tests), only it should rebuild the last one
 					caption: "Only builds the leaf node project",
 					edit: func(sys *TestSys) {
-						sys.writeFileNoError("/user/username/projects/sample1/tests/index.ts", "const m = 10;", false)
+						sys.writeFileNoError("/user/username/projects/sample1/tests/index.ts", "const m = 10;")
 					},
 				},
 				{
@@ -3370,7 +3516,7 @@ class someClass2 { }`,
 						sys.writeFileNoError("/user/username/projects/sample1/tests/tsconfig.base.json", stringtestutil.Dedent(`
 						{
 							"compilerOptions": { }
-						}`), false)
+						}`))
 					},
 				},
 			},
@@ -3632,7 +3778,7 @@ class someClass2 { }`,
 				{
 					caption: "Write logic",
 					edit: func(sys *TestSys) {
-						sys.writeFileNoError("/user/username/projects/sample1/logic/tsconfig.json", getLogicConfig(), false)
+						sys.writeFileNoError("/user/username/projects/sample1/logic/tsconfig.json", getLogicConfig())
 					},
 				},
 			},
@@ -3670,7 +3816,7 @@ class someClass2 { }`,
 				{
 					caption: "Add new file",
 					edit: func(sys *TestSys) {
-						sys.writeFileNoError("/user/username/projects/sample1/core/file3.ts", `export const y = 10;`, false)
+						sys.writeFileNoError("/user/username/projects/sample1/core/file3.ts", `export const y = 10;`)
 					},
 				},
 				noChange,
@@ -3694,7 +3840,7 @@ class someClass2 { }`,
 				{
 					caption: "Add new file",
 					edit: func(sys *TestSys) {
-						sys.writeFileNoError("/user/username/projects/sample1/core/file3.ts", `export const y = 10;`, false)
+						sys.writeFileNoError("/user/username/projects/sample1/core/file3.ts", `export const y = 10;`)
 					},
 				},
 				noChange,

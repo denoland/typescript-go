@@ -171,7 +171,11 @@ func getImportersForExport(
 	// Adds a module and all of its transitive dependencies as possible indirect users
 	var addIndirectUser func(*ast.Node, bool)
 	addIndirectUser = func(sourceFileLike *ast.Node, addTransitiveDependencies bool) {
-		debug.Assert(!isAvailableThroughGlobal)
+		// When isAvailableThroughGlobal, getIndirectUsers already returns all source files,
+		// so indirectUserDeclarations is never consulted. Nothing to do here.
+		if isAvailableThroughGlobal {
+			return
+		}
 		if !markSeenIndirectUser(sourceFileLike) {
 			return
 		}
@@ -479,7 +483,7 @@ func getImportOrExportSymbol(node *ast.Node, symbol *ast.Symbol, checker *checke
 
 		getSpecialPropertyExport := func(node *ast.Node, useLhsSymbol bool) *ImportExportSymbol {
 			var kind ExportKind
-			switch ast.GetAssignmentDeclarationKind(node.AsBinaryExpression()) {
+			switch ast.GetAssignmentDeclarationKind(node) {
 			case ast.JSDeclarationKindExportsProperty:
 				kind = ExportKindNamed
 			case ast.JSDeclarationKindModuleExports:
@@ -626,7 +630,7 @@ func isNodeImport(node *ast.Node) bool {
 		debug.Assert(parent.Name() == node)
 		return true
 	case ast.KindBindingElement:
-		return ast.IsInJSFile(node) && ast.IsVariableDeclarationInitializedToRequire(parent.Parent.Parent)
+		return ast.IsInJSFile(node) && ast.IsVariableDeclarationInitializedToBareOrAccessedRequire(parent.Parent.Parent)
 	}
 	return false
 }
@@ -646,7 +650,7 @@ func skipExportSpecifierSymbol(symbol *ast.Symbol, checker *checker.Checker) *as
 		case ast.IsPropertyAccessExpression(declaration) && ast.IsModuleExportsAccessExpression(declaration.Expression()) && !ast.IsPrivateIdentifier(declaration.Name()):
 			// Export of form 'module.exports.propName = expr';
 			return checker.GetSymbolAtLocation(declaration)
-		case ast.IsShorthandPropertyAssignment(declaration) && ast.IsBinaryExpression(declaration.Parent.Parent) && ast.GetAssignmentDeclarationKind(declaration.Parent.Parent.AsBinaryExpression()) == ast.JSDeclarationKindModuleExports:
+		case ast.IsShorthandPropertyAssignment(declaration) && ast.IsBinaryExpression(declaration.Parent.Parent) && ast.GetAssignmentDeclarationKind(declaration.Parent.Parent) == ast.JSDeclarationKindModuleExports:
 			return checker.GetExportSpecifierLocalTargetSymbol(declaration.Name())
 		}
 	}

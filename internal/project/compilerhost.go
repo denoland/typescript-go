@@ -75,6 +75,13 @@ func (c *builderFileSource) FS() vfs.FS {
 	return c.snapshotFSBuilder.FS()
 }
 
+func (c *builderFileSource) GetAccessibleEntries(_path string) vfs.Entries {
+	return vfs.Entries{
+		Files:       make([]string, 0),
+		Directories: make([]string, 0),
+	}
+}
+
 func NewProjectHost(
 	currentDirectory string,
 	project *Project,
@@ -149,13 +156,12 @@ func (c *compilerHost) GetResolvedProjectReference(fileName string, path tspath.
 	}
 }
 
-// GetSourceFile implements compiler.CompilerHost. GetSourceFile increments
-// the ref count of source files it acquires in the parseCache. There should
-// be a corresponding release for each call made.
+// GetSourceFile implements compiler.CompilerHost. Files are cached in parseCache;
+// ref counting is handled at the snapshot level after program construction.
 func (c *compilerHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
 	c.ensureAlive()
 	if fh := c.sourceFS.GetFileByPath(opts.FileName, opts.Path); fh != nil {
-		return c.builder.parseCache.Acquire(NewParseCacheKey(opts, fh.Hash(), fh.Kind()), fh)
+		return c.builder.parseCache.Load(NewParseCacheKey(opts, fh.Hash(), fh.Kind()), fh)
 	}
 	return nil
 }
@@ -218,7 +224,7 @@ func (fs *CompilerFS) WalkDir(root string, walkFn vfs.WalkDirFunc) error {
 }
 
 // WriteFile implements vfs.FS.
-func (fs *CompilerFS) WriteFile(path string, data string, writeByteOrderMark bool) error {
+func (fs *CompilerFS) WriteFile(path string, data string) error {
 	panic("unimplemented")
 }
 

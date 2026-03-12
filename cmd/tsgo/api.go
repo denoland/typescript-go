@@ -1,11 +1,13 @@
 package main
 
 import (
-	"errors"
+	"context"
 	"flag"
 	"fmt"
-	"io"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/microsoft/typescript-go/internal/api"
 	"github.com/microsoft/typescript-go/internal/bundled"
@@ -15,25 +17,42 @@ import (
 func runAPI(args []string) int {
 	flag := flag.NewFlagSet("api", flag.ContinueOnError)
 	cwd := flag.String("cwd", core.Must(os.Getwd()), "current working directory")
+	pipePath := flag.String("pipe", "", "use named pipe or Unix domain socket for communication instead of stdio")
+	callbacks := flag.String("callbacks", "", "comma-separated list of FS callbacks to enable (readFile,fileExists,directoryExists,getAccessibleEntries,realpath)")
+	async := flag.Bool("async", false, "use JSON-RPC protocol instead of MessagePack (for async API)")
 	if err := flag.Parse(args); err != nil {
 		return 2
 	}
 
 	defaultLibraryPath := bundled.LibPath()
 
-	logEnabled := os.Getenv("TSGO_LOG_ENABLED") == "1"
+	// Parse callbacks list
+	var callbacksList []string
+	if *callbacks != "" {
+		callbacksList = strings.Split(*callbacks, ",")
+	}
 
-	s := api.NewServer(&api.ServerOptions{
-		In:                 os.Stdin,
-		Out:                os.Stdout,
+	options := &api.StdioServerOptions{
 		Err:                os.Stderr,
 		Cwd:                *cwd,
 		DefaultLibraryPath: defaultLibraryPath,
-		LogEnabled:         logEnabled,
-	})
+		Callbacks:          callbacksList,
+		Async:              *async,
+	}
+	if *pipePath != "" {
+		options.PipePath = *pipePath
+	} else {
+		options.In = os.Stdin
+		options.Out = os.Stdout
+	}
 
-	if err := s.Run(); err != nil && !errors.Is(err, io.EOF) {
-		fmt.Println(err)
+	s := api.NewStdioServer(options)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := s.Run(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0

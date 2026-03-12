@@ -70,8 +70,7 @@ const (
 )
 
 func (v *View) Search(query string, kind QueryKind) []*Export {
-	var results []*Export
-	search := func(bucket *RegistryBucket) []*Export {
+	searchFn := func(bucket *RegistryBucket) []*Export {
 		switch kind {
 		case QueryKindWordPrefix:
 			return bucket.Index.SearchWordPrefix(query)
@@ -84,8 +83,24 @@ func (v *View) Search(query string, kind QueryKind) []*Export {
 		}
 	}
 
+	return v.search(searchFn)
+}
+
+func (v *View) SearchByExportID(id ExportID) []*Export {
+	search := func(bucket *RegistryBucket) []*Export {
+		return core.Filter(bucket.Index.entries, func(e *Export) bool {
+			return e.ExportID == id
+		})
+	}
+
+	return v.search(search)
+}
+
+func (v *View) search(searchFn func(*RegistryBucket) []*Export) []*Export {
+	var results []*Export
+
 	if bucket, ok := v.registry.projects[v.projectKey]; ok {
-		exports := search(bucket)
+		exports := searchFn(bucket)
 		results = slices.Grow(results, len(exports))
 		for _, e := range exports {
 			if string(e.ModuleID) == string(v.importingFile.Path()) {
@@ -123,7 +138,7 @@ func (v *View) Search(query string, kind QueryKind) []*Export {
 	excludePackages := &collections.Set[string]{}
 	tspath.ForEachAncestorDirectoryPath(v.importingFile.Path().GetDirectoryPath(), func(dirPath tspath.Path) (result any, stop bool) {
 		if nodeModulesBucket, ok := v.registry.nodeModules[dirPath]; ok {
-			exports := search(nodeModulesBucket)
+			exports := searchFn(nodeModulesBucket)
 			results = slices.Grow(results, len(exports))
 			for _, e := range exports {
 				// Exclude packages found in lower node_modules (shadowing)
@@ -190,14 +205,15 @@ outer:
 					grouped[key] = slices.Replace(existing, i, i+1, &Export{
 						ExportID:                   e.ExportID,
 						ModuleFileName:             e.ModuleFileName,
+						PackageName:                e.PackageName,
+						IsTypeOnly:                 e.IsTypeOnly || ex.IsTypeOnly,
 						Syntax:                     min(e.Syntax, ex.Syntax),
 						Flags:                      e.Flags | ex.Flags,
 						ScriptElementKind:          min(e.ScriptElementKind, ex.ScriptElementKind),
-						ScriptElementKindModifiers: *e.ScriptElementKindModifiers.UnionedWith(&ex.ScriptElementKindModifiers),
+						ScriptElementKindModifiers: e.ScriptElementKindModifiers | ex.ScriptElementKindModifiers,
 						localName:                  e.localName,
 						Target:                     e.Target,
 						Path:                       e.Path,
-						NodeModulesDirectory:       e.NodeModulesDirectory,
 					})
 					continue outer
 				}

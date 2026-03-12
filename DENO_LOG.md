@@ -1,5 +1,25 @@
 # Deno Log
 
+- Merged upstream commits: https://github.com/denoland/typescript-go/commits/4a59cd78390d5789f547db8af35b43be2f829719
+- Divergences in this fork: https://github.com/denoland/typescript-go/compare/4a59cd78390d5789f547db8af35b43be2f829719...main
+- Keep this updated with the hash of the latest merged upstream commit.
+
+### 2026.03.09 / @nayeemrmn
+
+We're switching to regular 3-way merges with merge commits.
+
+- `git checkout main`
+- We're merging up to https://github.com/denoland/typescript-go/commits/4a59cd78390d5789f547db8af35b43be2f829719.
+- The target commit is 4a59cd78390d5789f547db8af35b43be2f829719.
+- The date we'll reference for this merge is that of the target commit, not
+  necessarily the current date.
+- `git merge -m "merge(2026-03-09): 4a59cd78390d5789f547db8af35b43be2f829719" 4a59cd78390d5789f547db8af35b43be2f829719`
+    - General message format: `merge(YYYY-MM-DD): <hash-of-merged-commit>`
+  - Resolve conflicts.
+  - Update this log file in the process.
+  - `git add .`
+  - `git merge --continue`.
+
 ### 2026.01.12 / @bartlomieju
 
 Changes to the rebase process to avoid squashing all our changes into a single commit.
